@@ -30,11 +30,10 @@
 #include <cmath>
 
 using namespace std::chrono_literals;
-
-[cite_start]// 协议常量定义 [cite: 1067]
+ // 协议常量定义 [cite: 1067]
 const uint8_t FRAME_HEAD = 0xAA;
-const uint8_t TARGET_ADDR = 0x05; [cite_start]// 飞控地址 [cite: 1414]
-const uint8_t MY_ADDR = 0xAF;     [cite_start]// 上位机地址 [cite: 1414]
+const uint8_t TARGET_ADDR = 0x05; // 飞控地址 [cite: 1414]
+const uint8_t MY_ADDR = 0xAF;     // 上位机地址 [cite: 1414]
 
 class AnoBridgeNode : public rclcpp::Node
 {
@@ -136,10 +135,10 @@ private:
         if (serial_fd_ == -1) return;
 
         std::vector<uint8_t> frame;
-        frame.push_back(FRAME_HEAD);    [cite_start]// Head [cite: 1067]
-        frame.push_back(TARGET_ADDR);   [cite_start]// Addr [cite: 1067]
-        frame.push_back(id);            [cite_start]// ID   [cite: 1067]
-        frame.push_back(data.size());   [cite_start]// Len  [cite: 1067]
+        frame.push_back(FRAME_HEAD);    // Head [cite: 1067]
+        frame.push_back(TARGET_ADDR);   // Addr [cite: 1067]
+        frame.push_back(id);            // ID   [cite: 1067]
+        frame.push_back(data.size());   // Len  [cite: 1067]
 
         uint8_t sc = 0, ac = 0;
         
@@ -156,29 +155,29 @@ private:
             ac += sc;
         }
 
-        frame.push_back(sc); [cite_start]// SC [cite: 1070]
-        frame.push_back(ac); [cite_start]// AC [cite: 1072]
+        frame.push_back(sc); // SC [cite: 1070]
+        frame.push_back(ac); // AC [cite: 1072]
 
         write(serial_fd_, frame.data(), frame.size());
     }
 
     // --- ROS 回调函数 ---
 
-    [cite_start]// 1. 处理 Nav2 的控制指令 -> 发送 0x41 [cite: 1284]
+ // 1. 处理 Nav2 的控制指令 -> 发送 0x41 [cite: 1284]
     void cmd_vel_callback(const geometry_msgs::msg::Twist::SharedPtr msg) {
-        [cite_start]// Nav2 输出 m/s, 协议要求 cm/s [cite: 1291]
+     // Nav2 输出 m/s, 协议要求 cm/s [cite: 1291]
         int16_t speed_x = static_cast<int16_t>(msg->linear.x * 100.0); // 机头方向
         int16_t speed_y = static_cast<int16_t>(msg->linear.y * 100.0); // 机身左侧
         int16_t speed_z = 0; // 高度通常由飞控定高，或者可以在这里处理 msg->linear.z
 
-        [cite_start]// 角速度 rad/s -> deg/s (飞控单位) [cite: 1290]
+     // 角速度 rad/s -> deg/s (飞控单位) [cite: 1290]
         int16_t yaw_dps = static_cast<int16_t>(msg->angular.z * 57.29578);
 
-        [cite_start]// 构造 0x41 数据体 (14 bytes) [cite: 1285]
+     // 构造 0x41 数据体 (14 bytes) [cite: 1285]
         std::vector<uint8_t> data(14, 0);
         
         // 0x41 帧定义: ROL, PIT, THR, YAW_DPS, SPD_X, SPD_Y, SPD_Z (均为 int16)
-        [cite_start]// 在速度控制模式下，我们只控制 SPD_X, SPD_Y, YAW_DPS [cite: 1292]
+     // 在速度控制模式下，我们只控制 SPD_X, SPD_Y, YAW_DPS [cite: 1292]
         // ROL, PIT, THR 填 0
         
         // Little Endian 填充
@@ -199,16 +198,16 @@ private:
         send_frame(0x41, data);
     }
 
-    [cite_start]// 2. 处理 EKF 融合数据 -> 发送 0x33 [cite: 1266]
+ // 2. 处理 EKF 融合数据 -> 发送 0x33 [cite: 1266]
     void odom_callback(const nav_msgs::msg::Odometry::SharedPtr msg) {
         // EKF 的 twist 是基于 child_frame_id (base_link) 的，即相对于机身的速度
-        [cite_start]// 协议要求 cm/s [cite: 1269]
+     // 协议要求 cm/s [cite: 1269]
         
         int16_t odom_vx = static_cast<int16_t>(msg->twist.twist.linear.x * 100.0);
         int16_t odom_vy = static_cast<int16_t>(msg->twist.twist.linear.y * 100.0);
         int16_t odom_vz = static_cast<int16_t>(msg->twist.twist.linear.z * 100.0);
 
-        [cite_start]// 构造 0x33 数据体 (6 bytes) [cite: 1268]
+     // 构造 0x33 数据体 (6 bytes) [cite: 1268]
         // SPEED X, SPEED Y, SPEED Z (int16)
         std::vector<uint8_t> data(6);
         std::memcpy(&data[0], &odom_vx, 2);
@@ -234,7 +233,7 @@ private:
     void process_byte(uint8_t byte) {
         switch (state_) {
             case WAIT_HEAD:
-                if (byte == FRAME_HEAD) state_ = WAIT_ADDR; [cite_start]// [cite: 1067]
+                if (byte == FRAME_HEAD) state_ = WAIT_ADDR; // [cite: 1067]
                 break;
             case WAIT_ADDR:
                 p_addr_ = byte;
@@ -268,7 +267,7 @@ private:
         }
     }
 
-    [cite_start]// 校验和计算 [cite: 1070]
+ // 校验和计算 [cite: 1070]
     bool check_sum() {
         uint8_t sc = 0, ac = 0;
         std::vector<uint8_t> raw;
@@ -287,7 +286,7 @@ private:
 
     // 处理有效数据包
     void handle_packet() {
-        [cite_start]// 1. 处理 IMU 加速度/角速度 (0x01) [cite: 1120]
+     // 1. 处理 IMU 加速度/角速度 (0x01) [cite: 1120]
         if (p_id_ == 0x01 && p_len_ == 13) {
             int16_t acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z;
             std::memcpy(&acc_x, &p_data_[0], 2);
@@ -309,7 +308,7 @@ private:
             has_acc_ = true;
         }
 
-        [cite_start]// 2. 处理 IMU 姿态四元数 (0x04) [cite: 1140]
+     // 2. 处理 IMU 姿态四元数 (0x04) [cite: 1140]
         else if (p_id_ == 0x04 && p_len_ == 9) {
             int16_t v0, v1, v2, v3;
             std::memcpy(&v0, &p_data_[0], 2);
@@ -317,7 +316,7 @@ private:
             std::memcpy(&v2, &p_data_[4], 2);
             std::memcpy(&v3, &p_data_[6], 2);
 
-            [cite_start]// 协议：Data * 10000 [cite: 1143]
+         // 协议：Data * 10000 [cite: 1143]
             imu_msg_.orientation.w = v0 / 10000.0;
             imu_msg_.orientation.x = v1 / 10000.0;
             imu_msg_.orientation.y = v2 / 10000.0;
@@ -332,11 +331,11 @@ private:
             }
         }
 
-        [cite_start]// 3. 处理光流数据 (0x51) [cite: 1296]
+     // 3. 处理光流数据 (0x51) [cite: 1296]
         else if (p_id_ == 0x51) {
             uint8_t mode = p_data_[0];
             
-            [cite_start]// 我们只用 Mode 1: 融合后的地面速度 [cite: 1303]
+         // 我们只用 Mode 1: 融合后的地面速度 [cite: 1303]
             if (mode == 1 && p_len_ >= 5) {
                 int16_t dx, dy;
                 std::memcpy(&dx, &p_data_[2], 2); // cm/s
