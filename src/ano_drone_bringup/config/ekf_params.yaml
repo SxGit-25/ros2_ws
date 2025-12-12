@@ -1,0 +1,62 @@
+### config/ekf_params.yaml ###
+ekf_filter_node:
+  ros__parameters:
+    frequency: 30.0           # EKF 运行频率，30Hz 对树莓派比较合适
+    sensor_timeout: 0.1
+    two_d_mode: true          # 无人机在平面导航（假设高度由飞控气压计/定高逻辑独立控制），设为 true 忽略 Z 轴漂移
+    
+    transform_time_offset: 0.0
+    transform_timeout: 0.0
+    print_diagnostics: true
+    debug: false
+
+    map_frame: map
+    odom_frame: odom
+    base_link_frame: base_link
+    world_frame: odom         # 本地 EKF 的世界坐标系是 odom
+
+    # -------------------------------------
+    # 输入源 1: IMU (来自飞控 0x01/0x04)
+    # -------------------------------------
+    imu0: /imu/data
+    imu0_config: [false, false, false,  # X, Y, Z 位置 (IMU不提供)
+                  true,  true,  true,   # R, P, Y 角度 (使用飞控解算的姿态)
+                  false, false, false,  # X, Y, Z 速度
+                  false, false, false,  # R, P, Y 角速度 (可选 true，如果飞控角速度准)
+                  true,  true,  true]   # X, Y, Z 线性加速度
+    imu0_differential: false
+    imu0_relative: false
+    imu0_queue_size: 10
+    imu0_remove_gravitational_acceleration: true
+
+    # -------------------------------------
+    # 输入源 2: 光流 (来自飞控 0x51 -> C++节点转换)
+    # -------------------------------------
+    twist0: /optical_flow/vel
+    twist0_config: [false, false, false, # X, Y, Z 位置
+                    false, false, false, # R, P, Y 角度
+                    true,  true,  false, # X, Y, Z 速度 (光流提供 Vx, Vy)
+                    false, false, false, # R, P, Y 角速度
+                    false, false, false] # 加速度
+    twist0_differential: false
+    twist0_relative: false
+    twist0_queue_size: 10
+
+    # -------------------------------------
+    # 协方差设置 (根据传感器质量调整)
+    # -------------------------------------
+    process_noise_covariance: [0.05, 0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                               0,    0.05, 0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                               0,    0,    0.06, 0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                               0,    0,    0,    0.03, 0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                               0,    0,    0,    0,    0.03, 0,    0,     0,     0,    0,    0,    0,    0,    0,    0,
+                               0,    0,    0,    0,    0,    0.06, 0,     0,     0,    0,    0,    0,    0,    0,    0,
+                               0,    0,    0,    0,    0,    0,    0.025, 0,     0,    0,    0,    0,    0,    0,    0,
+                               0,    0,    0,    0,    0,    0,    0,     0.025, 0,    0,    0,    0,    0,    0,    0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0.04, 0,    0,    0,    0,    0,    0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,    0.01, 0,    0,    0,    0,    0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0.01, 0,    0,    0,    0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0.02, 0,    0,    0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0.01, 0,    0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0.01, 0,
+                               0,    0,    0,    0,    0,    0,    0,     0,     0,    0,    0,    0,    0,    0,    0.015]

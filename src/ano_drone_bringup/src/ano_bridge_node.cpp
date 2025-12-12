@@ -41,7 +41,7 @@ public:
     AnoBridgeNode() : Node("ano_bridge_node")
     {
         // 声明参数
-        this->declare_parameter<std::string>("serial_port", "/dev/ttyAMA0");
+        this->declare_parameter<std::string>("serial_port", "/dev/ttyUSB0");
         this->declare_parameter<int>("baud_rate", 500000); // 凌霄飞控通常默认 500000
         this->declare_parameter<std::string>("imu_frame_id", "imu_link");
         this->declare_parameter<std::string>("flow_frame_id", "flow_link");

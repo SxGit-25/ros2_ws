@@ -23,6 +23,13 @@ ament_target_dependencies(ano_bridge_node
   tf2_geometry_msgs
 )
 
+install(DIRECTORY
+  launch
+  config
+  rviz
+  DESTINATION share/${PROJECT_NAME}
+)
+
 install(TARGETS ano_bridge_node
   DESTINATION lib/${PROJECT_NAME})
 
