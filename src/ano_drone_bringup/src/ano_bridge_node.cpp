@@ -29,6 +29,8 @@
 #include <cstring>
 #include <cmath>
 
+#include "ano_drone_bringup/ano_protocol.h"
+
 using namespace std::chrono_literals;
  // 协议常量定义 [cite: 1067]
 const uint8_t FRAME_HEAD = 0xAA;
@@ -286,41 +288,33 @@ private:
 
     // 处理有效数据包
     void handle_packet() {
-     // 1. 处理 IMU 加速度/角速度 (0x01) [cite: 1120]
-        if (p_id_ == 0x01 && p_len_ == 13) {
-            int16_t acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z;
-            std::memcpy(&acc_x, &p_data_[0], 2);
-            std::memcpy(&acc_y, &p_data_[2], 2);
-            std::memcpy(&acc_z, &p_data_[4], 2);
-            std::memcpy(&gyr_x, &p_data_[6], 2);
-            std::memcpy(&gyr_y, &p_data_[8], 2);
-            std::memcpy(&gyr_z, &p_data_[10], 2);
+        // 1. 处理 IMU 加速度/角速度 (0x01)
+        if (p_id_ == 0x01 && p_len_ == sizeof(AnoProtocol::Frame0x01_IMU)) {
+            auto* frame = reinterpret_cast<AnoProtocol::Frame0x01_IMU*>(p_data_.data());
 
-            // 注意：此处需要根据你的飞控具体量程进行换算
-            // 假设原始数据直接输出（或者根据 MP6050 标准单位）
-            // 这里为了演示，暂时只进行坐标系转换，实际需乘以比例系数
-            imu_msg_.linear_acceleration.x = acc_x; 
-            imu_msg_.linear_acceleration.y = acc_y;
-            imu_msg_.linear_acceleration.z = acc_z;
-            imu_msg_.angular_velocity.x = gyr_x;
-            imu_msg_.angular_velocity.y = gyr_y;
-            imu_msg_.angular_velocity.z = gyr_z;
+            // BMI088 换算逻辑 (符合 FLU 坐标系)
+            // 加速度: ±8g 量程, 系数 4096.0, 转 m/s²
+            imu_msg_.linear_acceleration.x = (frame->acc_x / 4096.0) * 9.80665; 
+            imu_msg_.linear_acceleration.y = (frame->acc_y / 4096.0) * 9.80665;
+            imu_msg_.linear_acceleration.z = (frame->acc_z / 4096.0) * 9.80665;
+            
+            // 陀螺仪: ±2000dps 量程, 系数 16.4, 转 rad/s
+            imu_msg_.angular_velocity.x = (frame->gyr_x / 16.4) * (M_PI / 180.0);
+            imu_msg_.angular_velocity.y = (frame->gyr_y / 16.4) * (M_PI / 180.0);
+            imu_msg_.angular_velocity.z = (frame->gyr_z / 16.4) * (M_PI / 180.0);
+            
             has_acc_ = true;
         }
 
-     // 2. 处理 IMU 姿态四元数 (0x04) [cite: 1140]
-        else if (p_id_ == 0x04 && p_len_ == 9) {
-            int16_t v0, v1, v2, v3;
-            std::memcpy(&v0, &p_data_[0], 2);
-            std::memcpy(&v1, &p_data_[2], 2);
-            std::memcpy(&v2, &p_data_[4], 2);
-            std::memcpy(&v3, &p_data_[6], 2);
+        // 2. 处理 IMU 姿态四元数 (0x04)
+        else if (p_id_ == 0x04 && p_len_ == sizeof(AnoProtocol::Frame0x04_Quat)) {
+            auto* frame = reinterpret_cast<AnoProtocol::Frame0x04_Quat*>(p_data_.data());
 
-         // 协议：Data * 10000 [cite: 1143]
-            imu_msg_.orientation.w = v0 / 10000.0;
-            imu_msg_.orientation.x = v1 / 10000.0;
-            imu_msg_.orientation.y = v2 / 10000.0;
-            imu_msg_.orientation.z = v3 / 10000.0;
+            // 协议：Data / 10000.0
+            imu_msg_.orientation.w = frame->v0 / 10000.0;
+            imu_msg_.orientation.x = frame->v1 / 10000.0;
+            imu_msg_.orientation.y = frame->v2 / 10000.0;
+            imu_msg_.orientation.z = frame->v3 / 10000.0;
 
             // 发布完整的 IMU 消息
             if (has_acc_) {
@@ -331,25 +325,21 @@ private:
             }
         }
 
-     // 3. 处理光流数据 (0x51) [cite: 1296]
-        else if (p_id_ == 0x51) {
-            uint8_t mode = p_data_[0];
+        // 3. 处理光流数据 (0x51)
+        else if (p_id_ == 0x51 && p_len_ >= sizeof(AnoProtocol::Frame0x51_Flow)) {
+            auto* frame = reinterpret_cast<AnoProtocol::Frame0x51_Flow*>(p_data_.data());
             
-         // 我们只用 Mode 1: 融合后的地面速度 [cite: 1303]
-            if (mode == 1 && p_len_ >= 5) {
-                int16_t dx, dy;
-                std::memcpy(&dx, &p_data_[2], 2); // cm/s
-                std::memcpy(&dy, &p_data_[4], 2); // cm/s
-
+            // 我们只用 Mode 1: 融合后的地面速度
+            if (frame->mode == 1 && frame->state == 1) {
                 geometry_msgs::msg::TwistWithCovarianceStamped flow_msg;
                 flow_msg.header.stamp = this->now();
                 flow_msg.header.frame_id = this->get_parameter("flow_frame_id").as_string();
                 
-                // 转换为 m/s
-                flow_msg.twist.twist.linear.x = dx / 100.0;
-                flow_msg.twist.twist.linear.y = dy / 100.0;
+                // 转换为 m/s (原始单位 cm/s)
+                flow_msg.twist.twist.linear.x = frame->dx_speed / 100.0;
+                flow_msg.twist.twist.linear.y = frame->dy_speed / 100.0;
                 
-                // 设置简单的协方差，表示这是观测值
+                // 设置简单的协方差
                 flow_msg.twist.covariance[0] = 0.01; // x
                 flow_msg.twist.covariance[7] = 0.01; // y
                 
