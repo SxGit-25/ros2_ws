@@ -32,10 +32,10 @@
 #include "ano_drone_bringup/ano_protocol.h"
 
 using namespace std::chrono_literals;
- // 协议常量定义 [cite: 1067]
+ // 协议常量定义 
 const uint8_t FRAME_HEAD = 0xAA;
-const uint8_t TARGET_ADDR = 0x05; // 飞控地址 [cite: 1414]
-const uint8_t MY_ADDR = 0xAF;     // 上位机地址 [cite: 1414]
+const uint8_t TARGET_ADDR = 0x05; // 飞控地址 
+const uint8_t MY_ADDR = 0xAF;     // 上位机地址 
 
 class AnoBridgeNode : public rclcpp::Node
 {
