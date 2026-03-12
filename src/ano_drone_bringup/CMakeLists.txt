@@ -36,15 +36,15 @@ include_directories(
   ${serial_INCLUDE_DIRS}
 )
 
-# 硬件接口节点
-add_executable(ano_hardware_interface_node src/ano_hardware_interface_node.cpp)
-target_include_directories(ano_hardware_interface_node PUBLIC
+# 串口驱动节点
+add_executable(ano_serial_driver_node src/ano_serial_driver.cpp)
+target_include_directories(ano_serial_driver_node PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
   $<INSTALL_INTERFACE:include>
   ${serial_INCLUDE_DIRS}
 )
 
-ament_target_dependencies(ano_hardware_interface_node
+ament_target_dependencies(ano_serial_driver_node
   rclcpp
   rclcpp_components
   geometry_msgs
@@ -60,7 +60,7 @@ ament_target_dependencies(ano_hardware_interface_node
 )
 
 # 将节点注册为组件
-rclcpp_components_register_nodes(ano_hardware_interface_node "ano_drone_bringup::AnoHardwareInterfaceNode")
+rclcpp_components_register_nodes(ano_serial_driver_node "ano_drone_bringup::AnoSerialDriverNode")
 
 # 原有的ano_bridge_node（如果存在）
 if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/ano_bridge_node.cpp)
@@ -83,7 +83,7 @@ if(EXISTS ${CMAKE_CURRENT_SOURCE_DIR}/src/ano_bridge_node.cpp)
 endif()
 
 # 安装目标
-install(TARGETS ano_hardware_interface_node
+install(TARGETS ano_serial_driver_node
   DESTINATION lib/${PROJECT_NAME})
 
 # 安装目录
