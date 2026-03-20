@@ -9,6 +9,7 @@ QUATERNION_FRAME_ID = 0x04
 VELOCITY_FRAME_ID = 0x07
 GENERAL_VELOCITY_FRAME_ID = 0x33
 GENERAL_DISTANCE_FRAME_ID = 0x34
+REALTIME_CONTROL_FRAME_ID = 0x41
 
 SUPPORTED_PAYLOAD_LENGTHS: Dict[int, int] = {
     ATTITUDE_FRAME_ID: 7,
@@ -20,6 +21,7 @@ SUPPORTED_PAYLOAD_LENGTHS: Dict[int, int] = {
 
 GENERAL_VELOCITY_INVALID = -32768
 GENERAL_DISTANCE_INVALID = 0xFFFFFFFF
+CONTROL_ADDRESS = 0xFF
 
 
 @dataclass(frozen=True)
@@ -62,3 +64,14 @@ class GeneralDistanceData:
     direction: float
     angle_deg: float
     distance_m: float
+
+
+@dataclass(frozen=True)
+class RealtimeControlCommand:
+    ctrl_rol: int = 0
+    ctrl_pit: int = 0
+    ctrl_thr: int = 0
+    ctrl_yawdps: int = 0
+    ctrl_spd_x: int = 0
+    ctrl_spd_y: int = 0
+    ctrl_spd_z: int = 0
