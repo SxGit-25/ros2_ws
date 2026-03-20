@@ -139,9 +139,12 @@ class AnoReceiverNode(Node):
             msg.data = [decoded.direction, decoded.angle_deg, decoded.distance_m]
             self._general_distance_pub.publish(msg)
             if math.isnan(decoded.distance_m):
-                self._publish_frame_info(f'id=0x{frame_id:02X} invalid distance')
+                self._publish_frame_info('0x34 invalid distance')
             else:
-                self._publish_frame_info(f'id=0x{frame_id:02X} ok')
+                self._publish_frame_info(
+                    f'0x34 dir={int(decoded.direction)} angle={int(decoded.angle_deg)} '
+                    f'dist={decoded.distance_m:.2f}m'
+                )
 
     def _build_vector3(self, stamp, decoded: VelocityData) -> Vector3Stamped:
         msg = Vector3Stamped()

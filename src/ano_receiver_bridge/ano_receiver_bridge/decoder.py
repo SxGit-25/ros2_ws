@@ -80,6 +80,8 @@ def _decode_general_velocity(payload: bytes) -> VelocityData:
 
 
 def _decode_general_distance(payload: bytes) -> GeneralDistanceData:
+    # 0x34 payload is little-endian B H I:
+    # direction, angle in degrees, distance in centimeters.
     direction, angle_deg, distance_cm = struct.unpack('<BHI', payload)
     distance_m = math.nan if distance_cm == GENERAL_DISTANCE_INVALID else distance_cm / 100.0
     return GeneralDistanceData(
