@@ -4,7 +4,7 @@
   <name>ano_receiver_bridge</name>
   <version>0.1.0</version>
   <description>Minimal ROS 2 Humble Python receiver bridge for ANO flight controller serial frames.</description>
-  <maintainer email="metro@local">metro</maintainer>
+  <maintainer email="metro@local.com">metro</maintainer>
   <license>Apache-2.0</license>
 
   <buildtool_depend>ament_python</buildtool_depend>
