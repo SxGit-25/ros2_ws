@@ -16,7 +16,7 @@ from radar_frontend.quality_gate import (
     evaluate_odometry_candidate,
 )
 from radar_frontend.scan_matching_utils import match_scan_summaries
-from radar_frontend.scan_metrics import round_or_none, scan_to_summary, stamp_to_ns
+from radar_frontend.scan_metrics import round_or_none, scan_to_summary
 
 
 def quaternion_from_yaw(yaw_rad: float) -> Quaternion:
@@ -47,9 +47,14 @@ class RadarScanOdometryNode(Node):
         self.declare_parameter('yaw_search_step_deg', 1.0)
         self.declare_parameter('min_quality', 0.60)
         self.declare_parameter('low_confidence_quality', 0.40)
+        self.declare_parameter('high_confidence_quality', 0.82)
         self.declare_parameter('min_dt_sec', 0.03)
         self.declare_parameter('max_dt_sec', 0.25)
         self.declare_parameter('sector_median_jump_threshold_m', 0.80)
+        self.declare_parameter('min_inlier_ratio', 0.55)
+        self.declare_parameter('search_edge_ratio_limit', 0.80)
+        self.declare_parameter('static_translation_deadband_m', 0.03)
+        self.declare_parameter('static_yaw_deadband_deg', 0.35)
         self.declare_parameter('publish_debug', True)
 
         self._scan_topic = str(self.get_parameter('scan_topic').value)
@@ -71,10 +76,23 @@ class RadarScanOdometryNode(Node):
         self._low_confidence_quality = float(
             self.get_parameter('low_confidence_quality').value
         )
+        self._high_confidence_quality = float(
+            self.get_parameter('high_confidence_quality').value
+        )
         self._min_dt_sec = float(self.get_parameter('min_dt_sec').value)
         self._max_dt_sec = float(self.get_parameter('max_dt_sec').value)
         self._sector_median_jump_threshold_m = float(
             self.get_parameter('sector_median_jump_threshold_m').value
+        )
+        self._min_inlier_ratio = float(self.get_parameter('min_inlier_ratio').value)
+        self._search_edge_ratio_limit = float(
+            self.get_parameter('search_edge_ratio_limit').value
+        )
+        self._static_translation_deadband_m = float(
+            self.get_parameter('static_translation_deadband_m').value
+        )
+        self._static_yaw_deadband_deg = float(
+            self.get_parameter('static_yaw_deadband_deg').value
         )
         self._publish_debug = bool(self.get_parameter('publish_debug').value)
 
@@ -151,6 +169,11 @@ class RadarScanOdometryNode(Node):
             max_dt_sec=self._max_dt_sec,
             min_dt_sec=self._min_dt_sec,
             sector_median_jump_threshold_m=self._sector_median_jump_threshold_m,
+            min_inlier_ratio=self._min_inlier_ratio,
+            search_edge_ratio_limit=self._search_edge_ratio_limit,
+            high_confidence_quality=self._high_confidence_quality,
+            static_translation_deadband_m=self._static_translation_deadband_m,
+            static_yaw_deadband_deg=self._static_yaw_deadband_deg,
         )
 
         quality_value = float(match_result.get('quality', 0.0)) if match_result.get('success') else 0.0
@@ -172,6 +195,26 @@ class RadarScanOdometryNode(Node):
             dx_m = float(match_result['delta_x_m'])
             dy_m = float(match_result['delta_y_m'])
             delta_yaw_rad = float(match_result['delta_yaw_rad'])
+
+            inside_static_deadband = (
+                math.hypot(dx_m, dy_m) <= self._static_translation_deadband_m
+                and abs(math.degrees(delta_yaw_rad)) <= self._static_yaw_deadband_deg
+            )
+            if inside_static_deadband and quality_value < self._high_confidence_quality:
+                dx_m = 0.0
+                dy_m = 0.0
+                delta_yaw_rad = 0.0
+                gate['accept_motion'] = False
+                if gate['status'] == STATUS_VALID:
+                    gate['status'] = STATUS_LOW_CONFIDENCE
+                if 'zeroed_by_static_deadband' not in gate['warnings']:
+                    gate['warnings'].append('zeroed_by_static_deadband')
+
+            status_payload['status'] = gate['status']
+            status_payload['accept_motion'] = gate['accept_motion']
+            status_payload['reasons'] = gate['reasons']
+            status_payload['warnings'] = gate['warnings']
+
             vx_mps = dx_m / dt_sec if dt_sec > 0.0 else 0.0
             vy_mps = dy_m / dt_sec if dt_sec > 0.0 else 0.0
             yaw_rate_rps = delta_yaw_rad / dt_sec if dt_sec > 0.0 else 0.0
@@ -186,6 +229,15 @@ class RadarScanOdometryNode(Node):
                     'yaw_rate_rps': round_or_none(yaw_rate_rps),
                     'overlap_ratio': round_or_none(float(match_result['overlap_ratio'])),
                     'median_residual_m': round_or_none(float(match_result['median_residual_m'])),
+                    'inlier_ratio': round_or_none(float(match_result.get('inlier_ratio', 0.0))),
+                    'edge_ratio': round_or_none(float(match_result.get('edge_ratio', 0.0))),
+                    'max_sector_jump_m': round_or_none(
+                        float(match_result.get('max_sector_jump_m') or 0.0)
+                    ),
+                    'refined_shift_bins': round_or_none(
+                        float(match_result.get('refined_shift_bins', match_result['shift_bins'])),
+                        3,
+                    ),
                     'comparable_points': int(match_result['comparable_points']),
                 }
             )

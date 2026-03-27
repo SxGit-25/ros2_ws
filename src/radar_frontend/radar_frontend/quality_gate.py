@@ -23,6 +23,11 @@ def evaluate_odometry_candidate(
     max_dt_sec: float,
     min_dt_sec: float,
     sector_median_jump_threshold_m: float,
+    min_inlier_ratio: float,
+    search_edge_ratio_limit: float,
+    high_confidence_quality: float,
+    static_translation_deadband_m: float,
+    static_yaw_deadband_deg: float,
 ) -> Dict[str, object]:
     reasons: List[str] = []
     warnings: List[str] = []
@@ -55,6 +60,8 @@ def evaluate_odometry_candidate(
             reasons.append('median_residual_too_high')
         if float(match_result['translation_norm_m']) > max_translation_norm_m:
             reasons.append('translation_too_large')
+        if float(match_result.get('inlier_ratio', 0.0)) < min_inlier_ratio:
+            reasons.append('inlier_ratio_too_low')
 
         quality = float(match_result['quality'])
         if quality < low_confidence_quality:
@@ -62,16 +69,26 @@ def evaluate_odometry_candidate(
         elif quality < min_quality:
             warnings.append('quality_low_confidence')
 
-        jumps = []
-        current_sectors = current_summary['sector_medians_raw']
-        previous_sectors = previous_summary['sector_medians_raw']
-        for name, current_median in current_sectors.items():
-            previous_median = previous_sectors.get(name)
-            if current_median is None or previous_median is None:
-                continue
-            jumps.append(abs(float(current_median) - float(previous_median)))
-        if jumps and max(jumps) > sector_median_jump_threshold_m:
+        max_sector_jump_m = float(match_result.get('max_sector_jump_m') or 0.0)
+        if max_sector_jump_m > sector_median_jump_threshold_m:
             warnings.append('sector_jump_high')
+            if quality < high_confidence_quality:
+                reasons.append('sector_jump_with_insufficient_quality')
+
+        edge_ratio = float(match_result.get('edge_ratio', 0.0))
+        if edge_ratio >= search_edge_ratio_limit:
+            warnings.append('search_result_near_edge')
+            if quality < high_confidence_quality:
+                reasons.append('search_result_near_edge')
+
+        delta_yaw_deg = abs(float(match_result.get('delta_yaw_deg', 0.0)))
+        translation_norm_m = float(match_result.get('translation_norm_m', 0.0))
+        if (
+            translation_norm_m <= static_translation_deadband_m
+            and delta_yaw_deg <= static_yaw_deadband_deg
+            and quality < high_confidence_quality
+        ):
+            warnings.append('inside_static_deadband')
 
     if reasons:
         status = STATUS_INVALID

@@ -18,6 +18,33 @@ def _safe_median(values: List[float]) -> Optional[float]:
     return float(statistics.median(values))
 
 
+def _clamp(value: float, low: float, high: float) -> float:
+    return max(low, min(high, value))
+
+
+def _compute_sector_jump_metrics(
+    previous_summary: Dict[str, object],
+    current_summary: Dict[str, object],
+) -> Tuple[Optional[float], Optional[float], float]:
+    jumps: List[float] = []
+    previous_sectors = previous_summary['sector_medians_raw']
+    current_sectors = current_summary['sector_medians_raw']
+
+    for name, current_value in current_sectors.items():
+        previous_value = previous_sectors.get(name)
+        if current_value is None or previous_value is None:
+            continue
+        jumps.append(abs(float(current_value) - float(previous_value)))
+
+    if not jumps:
+        return None, None, 0.2
+
+    mean_jump = sum(jumps) / len(jumps)
+    max_jump = max(jumps)
+    sector_consistency_score = math.exp(-mean_jump / 0.20)
+    return mean_jump, max_jump, sector_consistency_score
+
+
 def match_scan_summaries(
     previous_summary: Dict[str, object],
     current_summary: Dict[str, object],
@@ -42,7 +69,12 @@ def match_scan_summaries(
     max_shift_bins = int(round(math.radians(max_yaw_search_deg) / angle_increment_rad))
     step_bins = max(1, int(round(math.radians(max(yaw_search_step_deg, 0.1)) / angle_increment_rad)))
 
-    best_result: Optional[Dict[str, object]] = None
+    mean_sector_jump_m, max_sector_jump_m, sector_consistency_score = _compute_sector_jump_metrics(
+        previous_summary,
+        current_summary,
+    )
+
+    candidates: List[Dict[str, object]] = []
     for shift_bins in range(-max_shift_bins, max_shift_bins + 1, step_bins):
         residuals: List[float] = []
         diffs_x: List[float] = []
@@ -83,33 +115,112 @@ def match_scan_summaries(
             continue
 
         translation_norm = math.hypot(dx_m, dy_m)
-        translation_penalty = min(1.0, translation_norm / max(max_translation_step_m, 1e-3))
-        residual_penalty = min(1.0, median_residual_m / 1.0)
-        quality = max(
+        inlier_residual_threshold_m = 0.12
+        inlier_ratio = (
+            float(sum(1 for residual in residuals if residual <= inlier_residual_threshold_m))
+            / float(len(residuals))
+            if residuals
+            else 0.0
+        )
+        edge_ratio = (
+            abs(float(shift_bins)) / float(max_shift_bins)
+            if max_shift_bins > 0
+            else 0.0
+        )
+        overlap_score = overlap_ratio ** 1.15
+        residual_score = math.exp(-median_residual_m / 0.08)
+        translation_score = math.exp(
+            -translation_norm / max(max_translation_step_m * 0.45, 1e-3)
+        )
+        edge_score = max(0.15, 1.0 - 0.75 * edge_ratio)
+        quality = _clamp(
+            overlap_score
+            * residual_score
+            * max(0.05, inlier_ratio)
+            * max(0.10, translation_score)
+            * max(0.15, sector_consistency_score)
+            * edge_score,
             0.0,
-            1.0
-            - 0.55 * residual_penalty
-            - 0.25 * translation_penalty
-            - 0.20 * max(0.0, 1.0 - overlap_ratio),
+            1.0,
         )
 
-        candidate = {
-            'success': True,
-            'shift_bins': shift_bins,
-            'delta_yaw_rad': yaw_rad,
-            'delta_yaw_deg': math.degrees(yaw_rad),
-            'delta_x_m': dx_m,
-            'delta_y_m': dy_m,
-            'translation_norm_m': translation_norm,
-            'overlap_ratio': overlap_ratio,
-            'median_residual_m': median_residual_m,
-            'quality': quality,
-            'comparable_points': comparable_points,
-        }
+        candidates.append(
+            {
+                'success': True,
+                'shift_bins': shift_bins,
+                'delta_yaw_rad': yaw_rad,
+                'delta_yaw_deg': math.degrees(yaw_rad),
+                'delta_x_m': dx_m,
+                'delta_y_m': dy_m,
+                'translation_norm_m': translation_norm,
+                'overlap_ratio': overlap_ratio,
+                'median_residual_m': median_residual_m,
+                'inlier_ratio': inlier_ratio,
+                'edge_ratio': edge_ratio,
+                'mean_sector_jump_m': mean_sector_jump_m,
+                'max_sector_jump_m': max_sector_jump_m,
+                'sector_consistency_score': sector_consistency_score,
+                'quality': quality,
+                'comparable_points': comparable_points,
+            }
+        )
 
-        if best_result is None or candidate['quality'] > best_result['quality']:
-            best_result = candidate
-
-    if best_result is None:
+    if not candidates:
         return {'success': False, 'reason': 'no_candidate'}
+
+    best_index = max(range(len(candidates)), key=lambda index: candidates[index]['quality'])
+    best_result = dict(candidates[best_index])
+
+    refined_shift_bins = float(best_result['shift_bins'])
+    if 0 < best_index < len(candidates) - 1:
+        left_quality = float(candidates[best_index - 1]['quality'])
+        center_quality = float(candidates[best_index]['quality'])
+        right_quality = float(candidates[best_index + 1]['quality'])
+        denominator = left_quality - 2.0 * center_quality + right_quality
+        if abs(denominator) > 1e-9:
+            offset = 0.5 * (left_quality - right_quality) / denominator
+            offset = _clamp(offset, -1.0, 1.0)
+            refined_shift_bins += offset * step_bins
+
+    refined_yaw_rad = refined_shift_bins * angle_increment_rad
+    prev_rotated_x: List[float] = []
+    prev_rotated_y: List[float] = []
+    curr_matched_x: List[float] = []
+    curr_matched_y: List[float] = []
+    best_shift_bins_int = int(best_result['shift_bins'])
+    start_prev = max(0, best_shift_bins_int)
+    start_curr = max(0, -best_shift_bins_int)
+    overlap = min(len(prev_points) - start_prev, len(curr_points) - start_curr)
+    for offset in range(max(0, overlap)):
+        prev_index = start_prev + offset
+        curr_index = start_curr + offset
+        prev_x, prev_y = prev_points[prev_index]
+        curr_x, curr_y = curr_points[curr_index]
+        prev_rot_x, prev_rot_y = _rotate_point(prev_x, prev_y, -refined_yaw_rad)
+        prev_rotated_x.append(prev_rot_x)
+        prev_rotated_y.append(prev_rot_y)
+        curr_matched_x.append(curr_x)
+        curr_matched_y.append(curr_y)
+
+    refined_dx_m = None
+    refined_dy_m = None
+    if prev_rotated_x and curr_matched_x:
+        refined_dx_m = _safe_median(
+            [prev_rotated_x[index] - curr_matched_x[index] for index in range(len(curr_matched_x))]
+        )
+        refined_dy_m = _safe_median(
+            [prev_rotated_y[index] - curr_matched_y[index] for index in range(len(curr_matched_y))]
+        )
+
+    if refined_dx_m is not None and refined_dy_m is not None:
+        best_result['delta_x_m'] = refined_dx_m
+        best_result['delta_y_m'] = refined_dy_m
+        best_result['translation_norm_m'] = math.hypot(refined_dx_m, refined_dy_m)
+
+    best_result['refined_shift_bins'] = refined_shift_bins
+    best_result['delta_yaw_rad'] = refined_yaw_rad
+    best_result['delta_yaw_deg'] = math.degrees(refined_yaw_rad)
+    best_result['search_step_bins'] = step_bins
+    best_result['search_window_bins'] = max_shift_bins
+    best_result['search_edge_hit'] = bool(best_result['edge_ratio'] >= 0.95)
     return best_result
