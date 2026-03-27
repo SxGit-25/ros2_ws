@@ -26,6 +26,7 @@ setup(
         'console_scripts': [
             'radar_scan_inspector_node = radar_frontend.radar_scan_inspector_node:main',
             'radar_scan_odometry_node = radar_frontend.radar_scan_odometry_node:main',
+            'observation_adapter_node = radar_frontend.observation_adapter_node:main',
         ],
     },
 )
