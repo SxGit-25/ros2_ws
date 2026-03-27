@@ -25,6 +25,7 @@ setup(
     entry_points={
         'console_scripts': [
             'radar_scan_inspector_node = radar_frontend.radar_scan_inspector_node:main',
+            'radar_scan_odometry_node = radar_frontend.radar_scan_odometry_node:main',
         ],
     },
 )
