@@ -24,8 +24,9 @@ class ObservationAdapterNode(Node):
         self.declare_parameter('quality_topic', '/radar/match_quality')
         self.declare_parameter('status_topic', '/radar/odom_status')
         self.declare_parameter('source_name', 'radar_frontend')
-        self.declare_parameter('candidate_frame_id', 'body')
+        self.declare_parameter('candidate_frame_id', 'radar_frame_unverified')
         self.declare_parameter('min_quality_for_velocity', 0.72)
+        self.declare_parameter('manual_review_quality_band', 0.85)
         self.declare_parameter('max_speed_mps', 1.50)
         self.declare_parameter('max_yaw_rate_rps', 1.50)
         self.declare_parameter('reject_on_warnings', True)
@@ -40,6 +41,9 @@ class ObservationAdapterNode(Node):
         self._min_quality_for_velocity = float(
             self.get_parameter('min_quality_for_velocity').value
         )
+        self._manual_review_quality_band = float(
+            self.get_parameter('manual_review_quality_band').value
+        )
         self._max_speed_mps = float(self.get_parameter('max_speed_mps').value)
         self._max_yaw_rate_rps = float(self.get_parameter('max_yaw_rate_rps').value)
         self._reject_on_warnings = bool(self.get_parameter('reject_on_warnings').value)
@@ -53,6 +57,9 @@ class ObservationAdapterNode(Node):
 
         self._candidate_pub = self.create_publisher(String, '/observation/radar_candidate', 10)
         self._status_pub = self.create_publisher(String, '/observation/radar_status', 10)
+        self._validation_debug_pub = self.create_publisher(
+            String, '/observation/radar_validation_debug', 10
+        )
 
         self.create_subscription(Odometry, self._odom_topic, self._handle_odom, 10)
         self.create_subscription(TwistStamped, self._vel_topic, self._handle_vel, 10)
@@ -92,6 +99,11 @@ class ObservationAdapterNode(Node):
         candidate_msg.data = json.dumps(candidate.to_dict(), sort_keys=True, ensure_ascii=True)
         self._candidate_pub.publish(candidate_msg)
 
+        validation_payload = self._build_validation_payload(candidate)
+        validation_msg = String()
+        validation_msg.data = json.dumps(validation_payload, sort_keys=True, ensure_ascii=True)
+        self._validation_debug_pub.publish(validation_msg)
+
         status_payload = {
             'source_name': candidate.source_name,
             'timestamp_ms': candidate.timestamp_ms,
@@ -101,6 +113,7 @@ class ObservationAdapterNode(Node):
             'pos_valid': candidate.pos_valid,
             'dist_valid': candidate.dist_valid,
             'reject_reason': candidate.reject_reason,
+            'downstream_recommendation': validation_payload['downstream_recommendation'],
             'debug_info': candidate.debug_info,
         }
         status_msg = String()
@@ -144,6 +157,9 @@ class ObservationAdapterNode(Node):
         vz = float(self._last_vel.twist.linear.z)
         yaw_rate = float(self._last_vel.twist.angular.z)
         speed_norm = math.hypot(vx, vy)
+        frame_id = self._candidate_frame_id
+        if self._last_vel.header.frame_id:
+            frame_id = self._last_vel.header.frame_id
 
         vel_valid = True
         reject_reason = ''
@@ -205,7 +221,7 @@ class ObservationAdapterNode(Node):
         return ObservationCandidateState(
             timestamp_ms=timestamp_ms,
             source_name=self._source_name,
-            frame_id=self._candidate_frame_id,
+            frame_id=frame_id,
             pos_x_cm=0,
             pos_y_cm=0,
             pos_z_cm=0,
@@ -224,6 +240,74 @@ class ObservationAdapterNode(Node):
             debug_info='; '.join(debug_info_parts),
         )
 
+    def _build_validation_payload(self, candidate: ObservationCandidateState) -> Dict[str, object]:
+        frontend_status = (
+            str(self._last_status.get('status', 'UNKNOWN')) if self._last_status is not None else 'UNKNOWN'
+        )
+        accept_motion = (
+            bool(self._last_status.get('accept_motion', False))
+            if self._last_status is not None
+            else False
+        )
+        warnings = (
+            [str(item) for item in self._last_status.get('warnings', [])]
+            if self._last_status is not None
+            else []
+        )
+        reasons = (
+            [str(item) for item in self._last_status.get('reasons', [])]
+            if self._last_status is not None
+            else []
+        )
+        vx_cms = candidate.vel_x_cms
+        vy_cms = candidate.vel_y_cms
+        vz_cms = candidate.vel_z_cms
+        yaw_rate = float(self._last_vel.twist.angular.z) if self._last_vel is not None else 0.0
+
+        downstream_recommendation = 'BLOCK'
+        review_reason = candidate.reject_reason
+        if candidate.vel_valid and candidate.confidence >= self._manual_review_quality_band:
+            downstream_recommendation = 'ALLOW_FOR_NEXT_STAGE_REVIEW'
+            review_reason = ''
+        elif candidate.vel_valid:
+            downstream_recommendation = 'MANUAL_REVIEW'
+            review_reason = 'candidate_valid_but_confidence_not_high_enough'
+        elif candidate.confidence >= self._min_quality_for_velocity and frontend_status == 'VALID':
+            downstream_recommendation = 'MANUAL_REVIEW'
+            if not review_reason:
+                review_reason = 'frontend_valid_but_adapter_rejected'
+
+        return {
+            'timestamp_ms': candidate.timestamp_ms,
+            'source_name': candidate.source_name,
+            'frame_id': candidate.frame_id,
+            'frame_semantics': {
+                'expressed_in': candidate.frame_id,
+                'x_positive': 'forward in the current radar/laser frame',
+                'y_positive': 'left in the current radar/laser frame',
+                'z_positive': 'up by ROS convention',
+                'yaw_rate_positive': 'counter-clockwise about +z',
+                'body_alignment_assumption': (
+                    'Only equal to aircraft body frame if laser_link is physically aligned with body axes'
+                ),
+            },
+            'candidate_values': {
+                'vx_cms': vx_cms,
+                'vy_cms': vy_cms,
+                'vz_cms': vz_cms,
+                'yaw_rate_rps': round(yaw_rate, 4),
+                'vel_valid': candidate.vel_valid,
+                'confidence': round(candidate.confidence, 4),
+            },
+            'frontend_status': frontend_status,
+            'accept_motion': accept_motion,
+            'warnings': warnings,
+            'reasons': reasons,
+            'reject_reason': candidate.reject_reason,
+            'downstream_recommendation': downstream_recommendation,
+            'review_reason': review_reason,
+        }
+
     def _maybe_log(self, status_payload: Dict[str, object]) -> None:
         now_ns = self.get_clock().now().nanoseconds
         if now_ns - self._last_log_ns < 1_000_000_000:
@@ -236,6 +320,7 @@ class ObservationAdapterNode(Node):
             f"vel_valid={status_payload['vel_valid']} "
             f"pos_valid={status_payload['pos_valid']} "
             f"dist_valid={status_payload['dist_valid']} "
+            f"downstream={status_payload['downstream_recommendation']} "
             f"reject_reason={status_payload['reject_reason']}"
         )
 

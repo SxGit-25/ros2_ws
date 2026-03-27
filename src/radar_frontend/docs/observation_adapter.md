@@ -21,8 +21,10 @@ This node intentionally does **not** publish the private protocol and does **not
 
 - `/observation/radar_candidate` (`std_msgs/msg/String`)
 - `/observation/radar_status` (`std_msgs/msg/String`)
+- `/observation/radar_validation_debug` (`std_msgs/msg/String`)
 
 Both topics publish compact JSON.
+The validation debug topic also publishes compact JSON.
 
 ## Current Mapping Policy
 
@@ -38,6 +40,36 @@ Both topics publish compact JSON.
   - always false in this version
 
 Rejected velocity candidates are currently zeroed in the unified state to avoid accidental downstream misuse.
+
+## Current Coordinate Semantics
+
+At this stage the adapter does not transform radar velocity into a separately calibrated aircraft body frame.
+
+- candidate velocity is expressed in the current frontend frame id
+- in practice this will usually be the lidar scan frame such as `laser_link`
+- `+x` means forward in that radar/laser frame
+- `+y` means left in that radar/laser frame
+- positive yaw rate means counter-clockwise about `+z`
+
+This is only equal to aircraft body semantics if `laser_link` is physically aligned with the aircraft body axes.
+
+## Controlled Validation Support
+
+`/observation/radar_validation_debug` includes:
+
+- frame semantics
+- candidate `vx / vy / yaw_rate`
+- `vel_valid`
+- `confidence`
+- frontend status
+- reject reason
+- downstream recommendation
+
+Downstream recommendation values:
+
+- `BLOCK`
+- `MANUAL_REVIEW`
+- `ALLOW_FOR_NEXT_STAGE_REVIEW`
 
 ## Build
 
@@ -68,6 +100,7 @@ ros2 launch radar_frontend observation_adapter.launch.py
 ```bash
 ros2 topic echo /observation/radar_candidate
 ros2 topic echo /observation/radar_status
+ros2 topic echo /observation/radar_validation_debug
 ros2 topic echo /radar/odom_status
 ros2 topic echo /radar/match_quality
 ros2 topic echo /radar/vel_candidate
