@@ -39,3 +39,6 @@ ros2 topic echo /radar/vel_candidate
 ros2 topic echo /observation/radar_status
 ros2 topic echo /private_observation/velocity_sender_status
 ```
+
+`/radar/match_debug` now includes bridge-side baseline statistics, jitter window statistics,
+internal motion state, and quality sub-scores to help tune static drift handling on-target.

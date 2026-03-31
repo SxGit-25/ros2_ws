@@ -19,8 +19,16 @@
     max_yaw_jump_deg: 20.0
     static_speed_threshold_mps: 0.05
     static_yaw_rate_threshold_rps: 0.08
-    static_false_motion_frames: 3
-    velocity_window_size: 3
-    min_quality: 0.60
-    low_confidence_quality: 0.40
+    baseline_window_size: 100
+    jitter_window_size: 20
+    velocity_window_size: 5
+    static_false_motion_trigger_frames: 8
+    static_false_motion_clear_frames: 5
+    static_jitter_speed_std_threshold: 0.04
+    moving_jitter_speed_std_threshold: 0.12
+    static_jitter_yaw_std_threshold: 0.08
+    moving_jitter_yaw_std_threshold: 0.20
+    quality_low_confidence_threshold: 0.45
+    quality_valid_threshold: 0.62
     log_hz: 1.0
+    baseline_log_hz: 0.5
