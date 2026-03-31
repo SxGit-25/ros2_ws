@@ -71,6 +71,13 @@ class Rf2oRadarBridgeNode(Node):
 
         self.declare_parameter('rf2o_odom_topic', '/odom_rf2o')
         self.declare_parameter('scan_topic', '/scan')
+        # Project default for the current N10 installation:
+        # body convention is +x forward, +y left.
+        # Field observation says the N10 zero-degree marker points roughly toward body -x
+        # and is offset by about 5 deg relative to +y, which is most consistent with the
+        # laser +x axis being at about +175 deg in base_link. The inverse fixed transform
+        # from laser frame to base_link is therefore initialized to about -175 deg.
+        self.declare_parameter('laser_to_base_yaw_deg', -175.0)
         self.declare_parameter('odom_candidate_topic', '/radar/odom_candidate')
         self.declare_parameter('vel_candidate_topic', '/radar/vel_candidate')
         self.declare_parameter('match_quality_topic', '/radar/match_quality')
@@ -104,6 +111,8 @@ class Rf2oRadarBridgeNode(Node):
 
         self._rf2o_odom_topic = str(self.get_parameter('rf2o_odom_topic').value)
         self._scan_topic = str(self.get_parameter('scan_topic').value)
+        self._laser_to_base_yaw_deg = float(self.get_parameter('laser_to_base_yaw_deg').value)
+        self._laser_to_base_yaw_rad = math.radians(self._laser_to_base_yaw_deg)
         self._odom_candidate_topic = str(self.get_parameter('odom_candidate_topic').value)
         self._vel_candidate_topic = str(self.get_parameter('vel_candidate_topic').value)
         self._match_quality_topic = str(self.get_parameter('match_quality_topic').value)
@@ -188,7 +197,8 @@ class Rf2oRadarBridgeNode(Node):
 
         self.get_logger().info(
             'RF2O radar bridge started '
-            f'rf2o_odom_topic={self._rf2o_odom_topic} scan_topic={self._scan_topic}'
+            f'rf2o_odom_topic={self._rf2o_odom_topic} scan_topic={self._scan_topic} '
+            f'laser_to_base_yaw_deg={self._laser_to_base_yaw_deg:.2f}'
         )
 
     def _handle_scan(self, msg: LaserScan) -> None:
@@ -285,8 +295,13 @@ class Rf2oRadarBridgeNode(Node):
         vx_world = dx_world / dt_sec if dt_sec > 0.0 else 0.0
         vy_world = dy_world / dt_sec if dt_sec > 0.0 else 0.0
 
-        cos_yaw = math.cos(curr_yaw)
-        sin_yaw = math.sin(curr_yaw)
+        # rf2o pose is treated here as the laser/estimation frame pose in odom.
+        # To recover velocity in aircraft/body axes, world velocity must be rotated into
+        # base_link, not just into the laser frame. That requires the fixed yaw extrinsic
+        # from laser frame to base_link.
+        effective_body_yaw = normalize_angle(curr_yaw + self._laser_to_base_yaw_rad)
+        cos_yaw = math.cos(effective_body_yaw)
+        sin_yaw = math.sin(effective_body_yaw)
         vx_body_raw = cos_yaw * vx_world + sin_yaw * vy_world
         vy_body_raw = -sin_yaw * vx_world + cos_yaw * vy_world
         yaw_rate_raw = dyaw_rad / dt_sec if dt_sec > 0.0 else 0.0
@@ -416,6 +431,9 @@ class Rf2oRadarBridgeNode(Node):
             'dx_world': round_or_none(dx_world),
             'dy_world': round_or_none(dy_world),
             'dyaw_rad': round_or_none(dyaw_rad, 6),
+            'yaw_estimation_frame_rad': round_or_none(curr_yaw, 6),
+            'effective_body_yaw_rad': round_or_none(effective_body_yaw, 6),
+            'laser_to_base_yaw_deg': round_or_none(self._laser_to_base_yaw_deg, 3),
             'vx_world': round_or_none(vx_world),
             'vy_world': round_or_none(vy_world),
             'raw_vx': round_or_none(vx_body_raw),

@@ -31,6 +31,7 @@ def _build_launch(context, *args, **kwargs):
     rf2o_base_frame_id = LaunchConfiguration('rf2o_base_frame_id').perform(context)
     rf2o_odom_frame_id = LaunchConfiguration('rf2o_odom_frame_id').perform(context)
     rf2o_scan_topic = LaunchConfiguration('rf2o_scan_topic').perform(context)
+    laser_to_base_yaw_deg = LaunchConfiguration('laser_to_base_yaw_deg').perform(context)
     sender_port = LaunchConfiguration('sender_port').perform(context)
     sender_output_mode = LaunchConfiguration('sender_output_mode').perform(context)
     lslidar_params_file = LaunchConfiguration('lslidar_params_file').perform(context)
@@ -109,6 +110,7 @@ def _build_launch(context, *args, **kwargs):
                     os.path.join(config_dir, 'rf2o_radar_bridge.flight.yaml'),
                     {
                         'scan_topic': rf2o_scan_topic,
+                        'laser_to_base_yaw_deg': laser_to_base_yaw_deg,
                     },
                 ],
             ),
@@ -206,6 +208,11 @@ def generate_launch_description():
                 'rf2o_scan_topic',
                 default_value='/scan',
                 description='Laser scan topic consumed by rf2o',
+            ),
+            DeclareLaunchArgument(
+                'laser_to_base_yaw_deg',
+                default_value='-175.0',
+                description='Fixed yaw offset from laser frame to base_link, in degrees',
             ),
             DeclareLaunchArgument(
                 'lslidar_params_file',
