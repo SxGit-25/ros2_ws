@@ -13,6 +13,7 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         ('share/' + package_name + '/launch', glob('launch/*.launch.py')),
+        ('share/' + package_name + '/config', glob('config/*.yaml')),
         ('share/' + package_name + '/docs', glob('docs/*.md')),
     ],
     install_requires=['setuptools', 'pyserial'],
@@ -28,6 +29,7 @@ setup(
             'radar_scan_odometry_node = radar_frontend.radar_scan_odometry_node:main',
             'observation_adapter_node = radar_frontend.observation_adapter_node:main',
             'private_observation_velocity_sender_node = radar_frontend.private_observation_velocity_sender_node:main',
+            'radar_trial_monitor_node = radar_frontend.radar_trial_monitor_node:main',
         ],
     },
 )

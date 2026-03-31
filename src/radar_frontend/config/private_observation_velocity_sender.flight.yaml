@@ -1,0 +1,20 @@
+/**:
+  ros__parameters:
+    candidate_topic: /observation/radar_candidate
+    status_topic: /observation/radar_status
+    send_hz: 10.0
+    dry_run: true
+    live_send: false
+    enable_send: false
+    send_invalid_frames: true
+    min_confidence_for_live_send: 0.85
+    max_speed_cms: 80
+    swap_xy: false
+    invert_x: false
+    invert_y: false
+    port: /dev/ttyUSB0
+    baudrate: 500000
+    timeout: 0.01
+    output_mode: serial
+    output_file: /tmp/private_observation_velocity_frames.bin
+    log_hex_enable: true

@@ -1,0 +1,17 @@
+/**:
+  ros__parameters:
+    radar_status_topic: /radar/odom_status
+    observation_status_topic: /observation/radar_status
+    sender_status_topic: /private_observation/velocity_sender_status
+    sender_debug_topic: /private_observation/velocity_sender_debug
+    radar_match_debug_topic: /radar/match_debug
+    scan_topic: /scan
+    summary_topic: /radar/trial_monitor_summary
+    publish_summary: true
+    print_console: true
+    clear_console: true
+    enable_color: true
+    refresh_hz: 2.0
+    stale_timeout_sec: 1.5
+    false_speed_alert_cms: 12
+    live_block_abort_streak: 20
