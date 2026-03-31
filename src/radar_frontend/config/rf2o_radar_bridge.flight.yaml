@@ -1,0 +1,26 @@
+/**:
+  ros__parameters:
+    rf2o_odom_topic: /odom_rf2o
+    scan_topic: /scan
+    odom_candidate_topic: /radar/odom_candidate
+    vel_candidate_topic: /radar/vel_candidate
+    match_quality_topic: /radar/match_quality
+    odom_status_topic: /radar/odom_status
+    match_debug_topic: /radar/match_debug
+    min_dt_sec: 0.04
+    max_dt_sec: 0.20
+    odom_stale_timeout_sec: 0.50
+    scan_stale_timeout_sec: 0.50
+    max_speed_mps: 1.20
+    warn_speed_mps: 0.80
+    max_yaw_rate_rps: 1.20
+    warn_yaw_rate_rps: 0.80
+    max_pose_jump_m: 0.25
+    max_yaw_jump_deg: 20.0
+    static_speed_threshold_mps: 0.05
+    static_yaw_rate_threshold_rps: 0.08
+    static_false_motion_frames: 3
+    velocity_window_size: 3
+    min_quality: 0.60
+    low_confidence_quality: 0.40
+    log_hz: 1.0
