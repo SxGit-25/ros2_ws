@@ -1,6 +1,6 @@
 # Radar RF2O Flight Test
 
-This entrypoint replaces the custom `radar_scan_odometry_node` in the main test chain with:
+This entrypoint is the explicit-name RF2O launch for the same retained flight-test chain as `radar_flight_test.launch.py`.
 
 - `rf2o_laser_odometry_node`
 - `rf2o_radar_bridge_node`
@@ -12,7 +12,7 @@ The downstream chain remains the same:
 - `radar_trial_monitor_node`
 - `private_observation_velocity_sender_node`
 
-The old frontend remains in the repository, but it is no longer used by this launch.
+Use this file if you want an RF2O-specific launch name; use `radar_flight_test.launch.py` if you want the default one-command entry.
 
 ## Safe Dry Run
 

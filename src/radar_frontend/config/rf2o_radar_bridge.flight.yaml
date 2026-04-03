@@ -5,7 +5,7 @@
     # Positive is counter-clockwise from laser frame to base_link.
     # Current field estimate: laser zero is roughly aligned with body -x, so initialize
     # the fixed laser->base yaw to about -175 deg for the N10 installation.
-    laser_to_base_yaw_deg: -175.0
+    laser_to_base_yaw_deg: -49.0
     odom_candidate_topic: /radar/odom_candidate
     vel_candidate_topic: /radar/vel_candidate
     match_quality_topic: /radar/match_quality

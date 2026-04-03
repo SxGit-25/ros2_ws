@@ -3,7 +3,7 @@
 <package format="3">
   <name>radar_frontend</name>
   <version>0.1.0</version>
-  <description>Minimal ROS 2 lidar frontend utilities for scan quality inspection.</description>
+  <description>ROS 2 radar frontend pipeline for RF2O bridging, observation adaptation, and monitored private send.</description>
   <maintainer email="metro@local.com">metro</maintainer>
   <license>Apache-2.0</license>
 

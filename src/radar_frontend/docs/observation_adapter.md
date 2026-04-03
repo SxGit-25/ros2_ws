@@ -1,12 +1,12 @@
 # Observation Adapter
 
-`observation_adapter_node` converts frontend candidate motion outputs into a unified external observation candidate state.
+`observation_adapter_node` converts RF2O bridge candidate motion outputs into a unified external observation candidate state.
 
 This node intentionally does **not** publish the private protocol and does **not** perform EKF or fusion.
 
 ## Purpose
 
-- treat radar frontend outputs as candidates, not truth
+- treat RF2O bridge outputs as candidates, not truth
 - decide whether velocity is valid enough to move forward in the pipeline
 - keep position and distance conservative at this stage
 
@@ -16,6 +16,8 @@ This node intentionally does **not** publish the private protocol and does **not
 - `/radar/vel_candidate` (`geometry_msgs/msg/TwistStamped`)
 - `/radar/match_quality` (`std_msgs/msg/Float32`)
 - `/radar/odom_status` (`std_msgs/msg/String`)
+
+These `/radar/*` topics are expected to be produced by `rf2o_radar_bridge_node`.
 
 ## Output Topics
 

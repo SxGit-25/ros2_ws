@@ -18,7 +18,6 @@ def _as_bool(value: str) -> bool:
 
 def _build_launch(context, *args, **kwargs):
     frontend_share = get_package_share_directory('radar_frontend')
-    lslidar_share = get_package_share_directory('lslidar_driver')
 
     sender_mode = LaunchConfiguration('sender_mode').perform(context).strip().lower()
     if sender_mode not in {'safe_dry_run', 'live_send'}:
@@ -26,7 +25,6 @@ def _build_launch(context, *args, **kwargs):
             "sender_mode must be either 'safe_dry_run' or 'live_send'"
         )
 
-    enable_inspector = _as_bool(LaunchConfiguration('enable_inspector').perform(context))
     start_lidar_driver = _as_bool(
         LaunchConfiguration('start_lidar_driver').perform(context)
     )
@@ -36,6 +34,11 @@ def _build_launch(context, *args, **kwargs):
     start_sender = _as_bool(LaunchConfiguration('start_sender').perform(context))
     monitor_console = _as_bool(LaunchConfiguration('monitor_console').perform(context))
     pipeline_output = LaunchConfiguration('pipeline_output').perform(context).strip() or 'log'
+    rf2o_publish_tf = _as_bool(LaunchConfiguration('rf2o_publish_tf').perform(context))
+    rf2o_base_frame_id = LaunchConfiguration('rf2o_base_frame_id').perform(context)
+    rf2o_odom_frame_id = LaunchConfiguration('rf2o_odom_frame_id').perform(context)
+    rf2o_scan_topic = LaunchConfiguration('rf2o_scan_topic').perform(context)
+    laser_to_base_yaw_deg = LaunchConfiguration('laser_to_base_yaw_deg').perform(context)
     sender_port = LaunchConfiguration('sender_port').perform(context)
     sender_output_mode = LaunchConfiguration('sender_output_mode').perform(context)
     lslidar_params_file = LaunchConfiguration('lslidar_params_file').perform(context)
@@ -88,31 +91,38 @@ def _build_launch(context, *args, **kwargs):
                 ]
             )
 
-    entities.append(
-        Node(
-            package='radar_frontend',
-            executable='radar_scan_odometry_node',
-            name='radar_scan_odometry_node',
-            output=pipeline_output,
-            emulate_tty=True,
-            parameters=[os.path.join(config_dir, 'radar_scan_odometry.flight.yaml')],
-        )
-    )
-
-    if enable_inspector:
-        entities.append(
-            Node(
-                package='radar_frontend',
-                executable='radar_scan_inspector_node',
-                name='radar_scan_inspector_node',
-                output=pipeline_output,
-                emulate_tty=True,
-                parameters=[os.path.join(config_dir, 'radar_scan_inspector.flight.yaml')],
-            )
-        )
-
     entities.extend(
         [
+            Node(
+                package='rf2o_laser_odometry',
+                executable='rf2o_laser_odometry_node',
+                name='rf2o_laser_odometry',
+                output=pipeline_output,
+                emulate_tty=True,
+                parameters=[
+                    os.path.join(config_dir, 'rf2o_laser_odometry.flight.yaml'),
+                    {
+                        'laser_scan_topic': rf2o_scan_topic,
+                        'publish_tf': rf2o_publish_tf,
+                        'base_frame_id': rf2o_base_frame_id,
+                        'odom_frame_id': rf2o_odom_frame_id,
+                    },
+                ],
+            ),
+            Node(
+                package='radar_frontend',
+                executable='rf2o_radar_bridge_node',
+                name='rf2o_radar_bridge_node',
+                output=pipeline_output,
+                emulate_tty=True,
+                parameters=[
+                    os.path.join(config_dir, 'rf2o_radar_bridge.flight.yaml'),
+                    {
+                        'scan_topic': rf2o_scan_topic,
+                        'laser_to_base_yaw_deg': laser_to_base_yaw_deg,
+                    },
+                ],
+            ),
             Node(
                 package='radar_frontend',
                 executable='observation_adapter_node',
@@ -174,11 +184,6 @@ def generate_launch_description():
                 description='safe_dry_run or live_send',
             ),
             DeclareLaunchArgument(
-                'enable_inspector',
-                default_value='false',
-                description='Whether to also launch radar_scan_inspector_node',
-            ),
-            DeclareLaunchArgument(
                 'start_lidar_driver',
                 default_value='true',
                 description='Whether to launch lslidar_driver_node in this entrypoint',
@@ -202,6 +207,31 @@ def generate_launch_description():
                 'pipeline_output',
                 default_value='log',
                 description='screen, log, or both for non-monitor nodes',
+            ),
+            DeclareLaunchArgument(
+                'rf2o_publish_tf',
+                default_value='true',
+                description='Whether rf2o publishes odom to base_link TF',
+            ),
+            DeclareLaunchArgument(
+                'rf2o_base_frame_id',
+                default_value='base_link',
+                description='Base frame for rf2o odometry output',
+            ),
+            DeclareLaunchArgument(
+                'rf2o_odom_frame_id',
+                default_value='odom',
+                description='Odom frame for rf2o odometry output',
+            ),
+            DeclareLaunchArgument(
+                'rf2o_scan_topic',
+                default_value='/scan',
+                description='Laser scan topic consumed by rf2o',
+            ),
+            DeclareLaunchArgument(
+                'laser_to_base_yaw_deg',
+                default_value='-175.0',
+                description='Fixed yaw offset from laser frame to base_link, in degrees',
             ),
             DeclareLaunchArgument(
                 'sender_port',

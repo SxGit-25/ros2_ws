@@ -20,13 +20,11 @@ setup(
     zip_safe=True,
     maintainer='metro',
     maintainer_email='metro@local.com',
-    description='Minimal ROS 2 lidar frontend utilities for scan quality inspection.',
+    description='ROS 2 radar frontend pipeline for RF2O bridging, observation adaptation, and monitored private send.',
     license='Apache-2.0',
     tests_require=['pytest'],
     entry_points={
         'console_scripts': [
-            'radar_scan_inspector_node = radar_frontend.radar_scan_inspector_node:main',
-            'radar_scan_odometry_node = radar_frontend.radar_scan_odometry_node:main',
             'observation_adapter_node = radar_frontend.observation_adapter_node:main',
             'private_observation_velocity_sender_node = radar_frontend.private_observation_velocity_sender_node:main',
             'radar_trial_monitor_node = radar_frontend.radar_trial_monitor_node:main',

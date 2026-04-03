@@ -1,6 +1,6 @@
 # Private Observation Velocity Sender
 
-`private_observation_velocity_sender_node` is a conservative velocity-only bridge from the radar observation candidate layer into the existing private observation protocol chain.
+`private_observation_velocity_sender_node` is a conservative velocity-only bridge from the RF2O-backed radar observation candidate layer into the existing private observation protocol chain.
 
 This node intentionally:
 

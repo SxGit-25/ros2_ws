@@ -1,4 +1,5 @@
 import json
+import math
 import sys
 from collections import deque
 from typing import Any, Deque, Dict, List, Optional
@@ -117,6 +118,7 @@ class RadarTrialMonitorNode(Node):
 
         self._last_scan_stamp_ns: Optional[int] = None
         self._scan_freq_samples_hz: Deque[float] = deque(maxlen=12)
+        self._last_scan_valid_ratio: Optional[float] = None
         self._topic_update_ns: Dict[str, int] = {}
         self._sender_block_streak = 0
         self._last_rendered_text = ''
@@ -194,6 +196,17 @@ class RadarTrialMonitorNode(Node):
             if delta_ns > 0:
                 self._scan_freq_samples_hz.append(1e9 / float(delta_ns))
         self._last_scan_stamp_ns = stamp_ns
+        total_points = len(scan.ranges)
+        valid_points = 0
+        for raw_range in scan.ranges:
+            if not math.isfinite(raw_range):
+                continue
+            if raw_range < scan.range_min or raw_range > scan.range_max:
+                continue
+            valid_points += 1
+        self._last_scan_valid_ratio = (
+            float(valid_points) / float(total_points) if total_points > 0 else None
+        )
         self._mark_topic_seen('scan')
 
     def _topic_age_sec(self, key: str) -> Optional[float]:
@@ -310,9 +323,7 @@ class RadarTrialMonitorNode(Node):
             else:
                 stage = 'CHECK_SENDER'
 
-        scan_valid_ratio = None
-        if isinstance(match_debug.get('valid_ratio'), (float, int)):
-            scan_valid_ratio = float(match_debug['valid_ratio'])
+        scan_valid_ratio = self._last_scan_valid_ratio
 
         estimated_scan_hz = None
         if self._scan_freq_samples_hz:
