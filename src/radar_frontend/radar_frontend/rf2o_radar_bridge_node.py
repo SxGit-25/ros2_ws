@@ -80,9 +80,14 @@ class Rf2oRadarBridgeNode(Node):
         self.declare_parameter('laser_to_base_yaw_deg', -175.0)
         self.declare_parameter('odom_candidate_topic', '/radar/odom_candidate')
         self.declare_parameter('vel_candidate_topic', '/radar/vel_candidate')
+        self.declare_parameter('imu_candidate_topic', '/observation/imu_candidate_state')
+        self.declare_parameter('enhanced_vel_candidate_topic', '/radar/vel_candidate_enhanced')
         self.declare_parameter('match_quality_topic', '/radar/match_quality')
+        self.declare_parameter('match_quality_after_imu_topic', '/radar/match_quality_after_imu')
         self.declare_parameter('odom_status_topic', '/radar/odom_status')
         self.declare_parameter('match_debug_topic', '/radar/match_debug')
+        self.declare_parameter('imu_enhanced_status_topic', '/radar/imu_enhanced_status')
+        self.declare_parameter('imu_enhanced_debug_topic', '/radar/imu_enhanced_debug')
         self.declare_parameter('min_dt_sec', 0.04)
         self.declare_parameter('max_dt_sec', 0.20)
         self.declare_parameter('odom_stale_timeout_sec', 0.50)
@@ -106,6 +111,17 @@ class Rf2oRadarBridgeNode(Node):
         self.declare_parameter('moving_jitter_yaw_std_threshold', 0.20)
         self.declare_parameter('quality_low_confidence_threshold', 0.45)
         self.declare_parameter('quality_valid_threshold', 0.62)
+        self.declare_parameter('imu_stationary_enter_gyro_threshold', 120.0)
+        self.declare_parameter('imu_stationary_exit_gyro_threshold', 180.0)
+        self.declare_parameter('imu_stationary_enter_acc_delta_threshold', 180.0)
+        self.declare_parameter('imu_stationary_exit_acc_delta_threshold', 260.0)
+        self.declare_parameter('imu_stationary_hold_frames', 8)
+        self.declare_parameter('imu_stationary_release_frames', 4)
+        self.declare_parameter('imu_radar_consistency_speed_threshold', 0.08)
+        self.declare_parameter('imu_radar_consistency_yaw_threshold', 0.12)
+        self.declare_parameter('high_rotation_penalty_threshold', 220.0)
+        self.declare_parameter('imu_acc_reference_window_size', 40)
+        self.declare_parameter('imu_stale_timeout_sec', 0.5)
         self.declare_parameter('log_hz', 1.0)
         self.declare_parameter('baseline_log_hz', 0.5)
 
@@ -115,9 +131,22 @@ class Rf2oRadarBridgeNode(Node):
         self._laser_to_base_yaw_rad = math.radians(self._laser_to_base_yaw_deg)
         self._odom_candidate_topic = str(self.get_parameter('odom_candidate_topic').value)
         self._vel_candidate_topic = str(self.get_parameter('vel_candidate_topic').value)
+        self._imu_candidate_topic = str(self.get_parameter('imu_candidate_topic').value)
+        self._enhanced_vel_candidate_topic = str(
+            self.get_parameter('enhanced_vel_candidate_topic').value
+        )
         self._match_quality_topic = str(self.get_parameter('match_quality_topic').value)
+        self._match_quality_after_imu_topic = str(
+            self.get_parameter('match_quality_after_imu_topic').value
+        )
         self._odom_status_topic = str(self.get_parameter('odom_status_topic').value)
         self._match_debug_topic = str(self.get_parameter('match_debug_topic').value)
+        self._imu_enhanced_status_topic = str(
+            self.get_parameter('imu_enhanced_status_topic').value
+        )
+        self._imu_enhanced_debug_topic = str(
+            self.get_parameter('imu_enhanced_debug_topic').value
+        )
         self._min_dt_sec = float(self.get_parameter('min_dt_sec').value)
         self._max_dt_sec = float(self.get_parameter('max_dt_sec').value)
         self._odom_stale_timeout_sec = float(self.get_parameter('odom_stale_timeout_sec').value)
@@ -161,13 +190,47 @@ class Rf2oRadarBridgeNode(Node):
         self._quality_valid_threshold = float(
             self.get_parameter('quality_valid_threshold').value
         )
+        self._imu_stationary_enter_gyro_threshold = float(
+            self.get_parameter('imu_stationary_enter_gyro_threshold').value
+        )
+        self._imu_stationary_exit_gyro_threshold = float(
+            self.get_parameter('imu_stationary_exit_gyro_threshold').value
+        )
+        self._imu_stationary_enter_acc_delta_threshold = float(
+            self.get_parameter('imu_stationary_enter_acc_delta_threshold').value
+        )
+        self._imu_stationary_exit_acc_delta_threshold = float(
+            self.get_parameter('imu_stationary_exit_acc_delta_threshold').value
+        )
+        self._imu_stationary_hold_frames = max(
+            2, int(self.get_parameter('imu_stationary_hold_frames').value)
+        )
+        self._imu_stationary_release_frames = max(
+            2, int(self.get_parameter('imu_stationary_release_frames').value)
+        )
+        self._imu_radar_consistency_speed_threshold = float(
+            self.get_parameter('imu_radar_consistency_speed_threshold').value
+        )
+        self._imu_radar_consistency_yaw_threshold = float(
+            self.get_parameter('imu_radar_consistency_yaw_threshold').value
+        )
+        self._high_rotation_penalty_threshold = float(
+            self.get_parameter('high_rotation_penalty_threshold').value
+        )
+        self._imu_acc_reference_window_size = max(
+            10, int(self.get_parameter('imu_acc_reference_window_size').value)
+        )
+        self._imu_stale_timeout_sec = max(0.1, float(self.get_parameter('imu_stale_timeout_sec').value))
         self._log_hz = max(0.1, float(self.get_parameter('log_hz').value))
         self._baseline_log_hz = max(0.1, float(self.get_parameter('baseline_log_hz').value))
 
         self._previous_odom: Optional[Odometry] = None
         self._last_odom_received_ns: Optional[int] = None
         self._last_scan_received_ns: Optional[int] = None
+        self._last_imu_received_ns: Optional[int] = None
+        self._latest_imu_candidate: Optional[Dict[str, object]] = None
         self._last_log_ns = 0
+        self._last_imu_enhancement_log_ns = 0
         self._last_baseline_log_ns = 0
 
         self._vx_filter_window: Deque[float] = deque(maxlen=self._velocity_window_size)
@@ -181,28 +244,65 @@ class Rf2oRadarBridgeNode(Node):
         self._vx_baseline_window: Deque[float] = deque(maxlen=self._baseline_window_size)
         self._vy_baseline_window: Deque[float] = deque(maxlen=self._baseline_window_size)
         self._yaw_baseline_window: Deque[float] = deque(maxlen=self._baseline_window_size)
+        self._imu_acc_norm_window: Deque[float] = deque(maxlen=self._imu_acc_reference_window_size)
 
         self._static_false_motion_over_counter = 0
         self._static_false_motion_clear_counter = 0
         self._static_false_motion_active = False
+        self._imu_stationary_enter_counter = 0
+        self._imu_stationary_release_counter = 0
+        self._imu_stationary_flag = False
+        self._imu_stationary_score = 0.0
+        self._imu_stationary_reason = 'imu_not_ready'
+        self._imu_acc_norm = 0.0
+        self._imu_acc_delta = 0.0
+        self._imu_raw_gyro_z = 0.0
 
         self._odom_pub = self.create_publisher(Odometry, self._odom_candidate_topic, 10)
         self._vel_pub = self.create_publisher(TwistStamped, self._vel_candidate_topic, 10)
+        self._enhanced_vel_pub = self.create_publisher(
+            TwistStamped, self._enhanced_vel_candidate_topic, 10
+        )
         self._quality_pub = self.create_publisher(Float32, self._match_quality_topic, 10)
+        self._quality_after_imu_pub = self.create_publisher(
+            Float32, self._match_quality_after_imu_topic, 10
+        )
         self._status_pub = self.create_publisher(String, self._odom_status_topic, 10)
         self._debug_pub = self.create_publisher(String, self._match_debug_topic, 10)
+        self._imu_enhanced_status_pub = self.create_publisher(
+            String, self._imu_enhanced_status_topic, 10
+        )
+        self._imu_enhanced_debug_pub = self.create_publisher(
+            String, self._imu_enhanced_debug_topic, 10
+        )
 
         self.create_subscription(Odometry, self._rf2o_odom_topic, self._handle_odom, 10)
         self.create_subscription(LaserScan, self._scan_topic, self._handle_scan, 10)
+        self.create_subscription(String, self._imu_candidate_topic, self._handle_imu_candidate, 10)
 
         self.get_logger().info(
             'RF2O radar bridge started '
             f'rf2o_odom_topic={self._rf2o_odom_topic} scan_topic={self._scan_topic} '
-            f'laser_to_base_yaw_deg={self._laser_to_base_yaw_deg:.2f}'
+            f'laser_to_base_yaw_deg={self._laser_to_base_yaw_deg:.2f} '
+            f'imu_candidate_topic={self._imu_candidate_topic}'
         )
 
     def _handle_scan(self, msg: LaserScan) -> None:
         self._last_scan_received_ns = self.get_clock().now().nanoseconds
+
+    def _handle_imu_candidate(self, msg: String) -> None:
+        try:
+            payload = json.loads(msg.data)
+        except json.JSONDecodeError:
+            return
+        self._latest_imu_candidate = payload
+        self._last_imu_received_ns = self.get_clock().now().nanoseconds
+        if not bool(payload.get('valid', False)):
+            self._imu_stationary_flag = False
+            self._imu_stationary_score = 0.0
+            self._imu_stationary_reason = 'imu_candidate_invalid'
+            return
+        self._update_imu_stationary_state(payload)
 
     def _handle_odom(self, msg: Odometry) -> None:
         now_ns = self.get_clock().now().nanoseconds
@@ -254,6 +354,16 @@ class Rf2oRadarBridgeNode(Node):
                 'odom_fresh': True,
                 'quality_components': {},
                 'baseline_summary': self._build_baseline_summary(),
+                'imu_enhancement': self._build_imu_debug_payload(
+                    imu_available=False,
+                    radar_confidence_before_imu=0.0,
+                    radar_confidence_after_imu=0.0,
+                    imu_radar_consistency_score=0.0,
+                    consistency_reject_reason='waiting_for_previous_odom',
+                    enhanced_vx=0.0,
+                    enhanced_vy=0.0,
+                    enhanced_yaw_rate=0.0,
+                ),
                 'status': STATUS_INVALID,
                 'reasons': ['waiting_for_previous_odom'],
                 'warnings': [],
@@ -411,6 +521,15 @@ class Rf2oRadarBridgeNode(Node):
             + 0.18 * quality_components['limit'],
             4,
         )
+        imu_enhancement = self._apply_imu_enhancement(
+            now_ns=now_ns,
+            vx_body_filtered=vx_body_filtered,
+            vy_body_filtered=vy_body_filtered,
+            yaw_rate_filtered=yaw_rate_filtered,
+            quality=quality,
+            reasons=reasons,
+            warnings=warnings,
+        )
 
         if reasons:
             status = STATUS_INVALID
@@ -453,6 +572,16 @@ class Rf2oRadarBridgeNode(Node):
             'odom_fresh': odom_fresh,
             'quality_components': quality_components,
             'baseline_summary': baseline_summary,
+            'imu_enhancement': self._build_imu_debug_payload(
+                imu_available=bool(imu_enhancement['imu_available']),
+                radar_confidence_before_imu=quality,
+                radar_confidence_after_imu=float(imu_enhancement['radar_confidence_after_imu']),
+                imu_radar_consistency_score=float(imu_enhancement['imu_radar_consistency_score']),
+                consistency_reject_reason=str(imu_enhancement['consistency_reject_reason']),
+                enhanced_vx=float(imu_enhancement['enhanced_vx']),
+                enhanced_vy=float(imu_enhancement['enhanced_vy']),
+                enhanced_yaw_rate=float(imu_enhancement['enhanced_yaw_rate']),
+            ),
             'status': status,
             'reasons': reasons,
             'warnings': warnings,
@@ -470,6 +599,212 @@ class Rf2oRadarBridgeNode(Node):
             'warnings': warnings,
             'debug': debug_payload,
             'baseline_summary': baseline_summary,
+            'imu_enhancement': imu_enhancement,
+        }
+
+    def _update_imu_stationary_state(self, payload: Dict[str, object]) -> None:
+        acc_x = float(payload.get('acc_x', 0.0))
+        acc_y = float(payload.get('acc_y', 0.0))
+        acc_z = float(payload.get('acc_z', 0.0))
+        gyr_x = float(payload.get('gyr_x', 0.0))
+        gyr_y = float(payload.get('gyr_y', 0.0))
+        gyr_z = float(payload.get('gyr_z', 0.0))
+
+        gyro_peak = max(abs(gyr_x), abs(gyr_y), abs(gyr_z))
+        acc_norm = math.sqrt(acc_x * acc_x + acc_y * acc_y + acc_z * acc_z)
+        self._imu_acc_norm_window.append(acc_norm)
+        acc_ref = median_or_zero(self._imu_acc_norm_window) if self._imu_acc_norm_window else acc_norm
+        acc_delta = abs(acc_norm - acc_ref)
+
+        enter_ok = (
+            gyro_peak <= self._imu_stationary_enter_gyro_threshold
+            and acc_delta <= self._imu_stationary_enter_acc_delta_threshold
+        )
+        exit_trigger = (
+            gyro_peak >= self._imu_stationary_exit_gyro_threshold
+            or acc_delta >= self._imu_stationary_exit_acc_delta_threshold
+        )
+
+        if self._imu_stationary_flag:
+            if exit_trigger:
+                self._imu_stationary_release_counter += 1
+                self._imu_stationary_enter_counter = 0
+            else:
+                self._imu_stationary_release_counter = 0
+            if self._imu_stationary_release_counter >= self._imu_stationary_release_frames:
+                self._imu_stationary_flag = False
+                self._imu_stationary_release_counter = 0
+        else:
+            if enter_ok:
+                self._imu_stationary_enter_counter += 1
+                self._imu_stationary_release_counter = 0
+            else:
+                self._imu_stationary_enter_counter = 0
+            if self._imu_stationary_enter_counter >= self._imu_stationary_hold_frames:
+                self._imu_stationary_flag = True
+                self._imu_stationary_enter_counter = 0
+
+        gyro_score = clamp(
+            1.0 - gyro_peak / max(self._imu_stationary_exit_gyro_threshold, 1e-3),
+            0.0,
+            1.0,
+        )
+        acc_score = clamp(
+            1.0 - acc_delta / max(self._imu_stationary_exit_acc_delta_threshold, 1e-3),
+            0.0,
+            1.0,
+        )
+        self._imu_stationary_score = round(0.65 * gyro_score + 0.35 * acc_score, 4)
+        if self._imu_stationary_flag:
+            self._imu_stationary_reason = 'gyro_low_and_acc_norm_stable'
+        elif gyro_peak > self._imu_stationary_exit_gyro_threshold:
+            self._imu_stationary_reason = 'gyro_above_exit_threshold'
+        elif acc_delta > self._imu_stationary_exit_acc_delta_threshold:
+            self._imu_stationary_reason = 'acc_norm_delta_above_exit_threshold'
+        else:
+            self._imu_stationary_reason = 'waiting_for_hold_frames'
+
+        self._imu_acc_norm = acc_norm
+        self._imu_acc_delta = acc_delta
+        self._imu_raw_gyro_z = gyr_z
+
+    def _apply_imu_enhancement(
+        self,
+        *,
+        now_ns: int,
+        vx_body_filtered: float,
+        vy_body_filtered: float,
+        yaw_rate_filtered: float,
+        quality: float,
+        reasons: List[str],
+        warnings: List[str],
+    ) -> Dict[str, object]:
+        speed_norm = math.hypot(vx_body_filtered, vy_body_filtered)
+        imu_available = self._is_imu_fresh(now_ns)
+        radar_confidence_after_imu = float(quality)
+        consistency_score = 1.0 if imu_available else 0.5
+        consistency_reject_reason = ''
+        enhanced_vx = float(vx_body_filtered)
+        enhanced_vy = float(vy_body_filtered)
+        enhanced_yaw_rate = float(yaw_rate_filtered)
+
+        if not imu_available:
+            return {
+                'imu_available': False,
+                'imu_stationary_flag': False,
+                'imu_stationary_score': 0.0,
+                'imu_stationary_reason': 'imu_stale_or_missing',
+                'imu_radar_consistency_score': consistency_score,
+                'consistency_reject_reason': 'imu_stale_or_missing',
+                'radar_confidence_after_imu': radar_confidence_after_imu,
+                'enhanced_vx': enhanced_vx,
+                'enhanced_vy': enhanced_vy,
+                'enhanced_yaw_rate': enhanced_yaw_rate,
+                'rotation_penalty_applied': False,
+            }
+
+        if self._imu_stationary_flag:
+            speed_ratio = speed_norm / max(self._imu_radar_consistency_speed_threshold, 1e-3)
+            yaw_ratio = abs(yaw_rate_filtered) / max(self._imu_radar_consistency_yaw_threshold, 1e-3)
+            mismatch_penalty = clamp(
+                0.6 * clamp(speed_ratio / 2.0, 0.0, 1.0)
+                + 0.4 * clamp(yaw_ratio / 2.0, 0.0, 1.0),
+                0.0,
+                1.0,
+            )
+            consistency_score = clamp(
+                1.0 - mismatch_penalty * (0.55 + 0.35 * self._imu_stationary_score),
+                0.05,
+                1.0,
+            )
+            radar_confidence_after_imu *= consistency_score
+            if (
+                speed_norm <= self._imu_radar_consistency_speed_threshold * 1.8
+                and abs(yaw_rate_filtered) <= self._imu_radar_consistency_yaw_threshold * 1.4
+            ):
+                enhanced_vx = 0.0
+                enhanced_vy = 0.0
+                enhanced_yaw_rate = 0.0
+                consistency_reject_reason = 'imu_stationary_zeroed_small_radar_motion'
+            elif mismatch_penalty > 0.55:
+                scale = clamp(1.0 - 0.85 * self._imu_stationary_score, 0.05, 1.0)
+                enhanced_vx *= scale
+                enhanced_vy *= scale
+                if abs(yaw_rate_filtered) <= self._imu_radar_consistency_yaw_threshold * 1.6:
+                    enhanced_yaw_rate *= scale
+                consistency_reject_reason = 'imu_stationary_radar_motion_mismatch'
+
+        rotation_penalty_applied = False
+        if abs(self._imu_raw_gyro_z) >= self._high_rotation_penalty_threshold:
+            rotation_penalty_applied = True
+            if speed_norm <= self._imu_radar_consistency_speed_threshold * 3.0:
+                enhanced_vx *= 0.35
+                enhanced_vy *= 0.35
+                radar_confidence_after_imu *= 0.72
+                consistency_score *= 0.82
+                if not consistency_reject_reason:
+                    consistency_reject_reason = 'high_rotation_translation_penalty'
+            if (
+                abs(yaw_rate_filtered) >= self._imu_radar_consistency_yaw_threshold
+                and math.copysign(1.0, yaw_rate_filtered) != math.copysign(1.0, self._imu_raw_gyro_z)
+            ):
+                radar_confidence_after_imu *= 0.75
+                consistency_score *= 0.7
+                consistency_reject_reason = 'imu_radar_yaw_trend_mismatch'
+
+        if 'pose_jump_too_large' in reasons or 'yaw_jump_too_large' in reasons:
+            if self._imu_stationary_score >= 0.7:
+                radar_confidence_after_imu *= 0.7
+                consistency_score *= 0.75
+                if not consistency_reject_reason:
+                    consistency_reject_reason = 'jump_inconsistent_with_imu_stability'
+
+        consistency_score = round(clamp(consistency_score, 0.0, 1.0), 4)
+        radar_confidence_after_imu = round(clamp(radar_confidence_after_imu, 0.0, 1.0), 4)
+
+        return {
+            'imu_available': True,
+            'imu_stationary_flag': self._imu_stationary_flag,
+            'imu_stationary_score': self._imu_stationary_score,
+            'imu_stationary_reason': self._imu_stationary_reason,
+            'imu_radar_consistency_score': consistency_score,
+            'consistency_reject_reason': consistency_reject_reason,
+            'radar_confidence_after_imu': radar_confidence_after_imu,
+            'enhanced_vx': round_or_none(enhanced_vx),
+            'enhanced_vy': round_or_none(enhanced_vy),
+            'enhanced_yaw_rate': round_or_none(enhanced_yaw_rate),
+            'rotation_penalty_applied': rotation_penalty_applied,
+        }
+
+    def _build_imu_debug_payload(
+        self,
+        *,
+        imu_available: bool,
+        radar_confidence_before_imu: float,
+        radar_confidence_after_imu: float,
+        imu_radar_consistency_score: float,
+        consistency_reject_reason: str,
+        enhanced_vx: float,
+        enhanced_vy: float,
+        enhanced_yaw_rate: float,
+    ) -> Dict[str, object]:
+        return {
+            'imu_available': imu_available,
+            'imu_stationary_flag': self._imu_stationary_flag if imu_available else False,
+            'imu_stationary_score': round_or_none(self._imu_stationary_score),
+            'imu_stationary_reason': self._imu_stationary_reason if imu_available else 'imu_stale_or_missing',
+            'raw_gyro_z': round_or_none(self._imu_raw_gyro_z),
+            'raw_acc_norm': round_or_none(self._imu_acc_norm),
+            'acc_norm_delta': round_or_none(self._imu_acc_delta),
+            'radar_confidence_before_imu': round_or_none(radar_confidence_before_imu),
+            'radar_confidence_after_imu': round_or_none(radar_confidence_after_imu),
+            'imu_radar_consistency_score': round_or_none(imu_radar_consistency_score),
+            'consistency_reject_reason': consistency_reject_reason,
+            'radar_twist_candidate_enhanced': {
+                'vx_mps': round_or_none(enhanced_vx),
+                'vy_mps': round_or_none(enhanced_vy),
+                'yaw_rate_rps': round_or_none(enhanced_yaw_rate),
+            },
         }
 
     def _classify_motion_state(
@@ -720,6 +1055,17 @@ class Rf2oRadarBridgeNode(Node):
         vel_candidate.twist.angular.y = 0.0
         vel_candidate.twist.angular.z = float(result['yaw_rate_filtered'])
         self._vel_pub.publish(vel_candidate)
+        imu_enhancement = result['imu_enhancement']
+
+        enhanced_candidate = TwistStamped()
+        enhanced_candidate.header = current_msg.header
+        enhanced_candidate.twist.linear.x = float(imu_enhancement['enhanced_vx'])
+        enhanced_candidate.twist.linear.y = float(imu_enhancement['enhanced_vy'])
+        enhanced_candidate.twist.linear.z = 0.0
+        enhanced_candidate.twist.angular.x = 0.0
+        enhanced_candidate.twist.angular.y = 0.0
+        enhanced_candidate.twist.angular.z = float(imu_enhancement['enhanced_yaw_rate'])
+        self._enhanced_vel_pub.publish(enhanced_candidate)
 
         status_payload = {
             'status': result['status'],
@@ -734,14 +1080,39 @@ class Rf2oRadarBridgeNode(Node):
         }
         self._publish_status(status_payload)
         self._publish_quality(float(result['quality']))
+        self._publish_quality_after_imu(float(imu_enhancement['radar_confidence_after_imu']))
+        self._publish_imu_enhanced_status(
+            {
+                'stamp_ns': result['stamp_ns'],
+                'imu_stationary_flag': imu_enhancement['imu_stationary_flag'],
+                'imu_stationary_score': imu_enhancement['imu_stationary_score'],
+                'imu_stationary_reason': imu_enhancement['imu_stationary_reason'],
+                'imu_radar_consistency_score': imu_enhancement['imu_radar_consistency_score'],
+                'consistency_reject_reason': imu_enhancement['consistency_reject_reason'],
+                'radar_confidence_before_imu': result['quality'],
+                'radar_confidence_after_imu': imu_enhancement['radar_confidence_after_imu'],
+                'radar_twist_candidate_enhanced': {
+                    'vx_mps': imu_enhancement['enhanced_vx'],
+                    'vy_mps': imu_enhancement['enhanced_vy'],
+                    'yaw_rate_rps': imu_enhancement['enhanced_yaw_rate'],
+                },
+            }
+        )
+        self._publish_imu_enhanced_debug(result['debug']['imu_enhancement'])
         self._publish_debug(result['debug'])
         self._maybe_log(status_payload)
+        self._maybe_log_imu_enhancement(result['debug']['imu_enhancement'])
         self._maybe_log_baseline(result['baseline_summary'])
 
     def _publish_quality(self, quality: float) -> None:
         msg = Float32()
         msg.data = float(quality)
         self._quality_pub.publish(msg)
+
+    def _publish_quality_after_imu(self, quality: float) -> None:
+        msg = Float32()
+        msg.data = float(quality)
+        self._quality_after_imu_pub.publish(msg)
 
     def _publish_status(self, payload: Dict[str, object]) -> None:
         msg = String()
@@ -752,6 +1123,16 @@ class Rf2oRadarBridgeNode(Node):
         msg = String()
         msg.data = json.dumps(payload, sort_keys=True, ensure_ascii=True)
         self._debug_pub.publish(msg)
+
+    def _publish_imu_enhanced_status(self, payload: Dict[str, object]) -> None:
+        msg = String()
+        msg.data = json.dumps(payload, sort_keys=True, ensure_ascii=True)
+        self._imu_enhanced_status_pub.publish(msg)
+
+    def _publish_imu_enhanced_debug(self, payload: Dict[str, object]) -> None:
+        msg = String()
+        msg.data = json.dumps(payload, sort_keys=True, ensure_ascii=True)
+        self._imu_enhanced_debug_pub.publish(msg)
 
     def _stamp_to_ns(self, msg: Odometry) -> int:
         return int(msg.header.stamp.sec) * 1_000_000_000 + int(msg.header.stamp.nanosec)
@@ -765,6 +1146,13 @@ class Rf2oRadarBridgeNode(Node):
         if self._last_odom_received_ns is None:
             return False
         return (now_ns - self._last_odom_received_ns) / 1e9 <= self._odom_stale_timeout_sec
+
+    def _is_imu_fresh(self, now_ns: int) -> bool:
+        if self._last_imu_received_ns is None or self._latest_imu_candidate is None:
+            return False
+        if not bool(self._latest_imu_candidate.get('valid', False)):
+            return False
+        return (now_ns - self._last_imu_received_ns) / 1e9 <= self._imu_stale_timeout_sec
 
     def _maybe_log(self, status_payload: Dict[str, object]) -> None:
         now_ns = self.get_clock().now().nanoseconds
@@ -781,6 +1169,24 @@ class Rf2oRadarBridgeNode(Node):
             f"yaw_rate={status_payload['yaw_rate_rps']} "
             f"reasons={status_payload['reasons']} "
             f"warnings={status_payload['warnings']}"
+        )
+
+    def _maybe_log_imu_enhancement(self, payload: Dict[str, object]) -> None:
+        now_ns = self.get_clock().now().nanoseconds
+        min_gap_ns = int(1e9 / self._log_hz)
+        if now_ns - self._last_imu_enhancement_log_ns < min_gap_ns:
+            return
+        self._last_imu_enhancement_log_ns = now_ns
+        self.get_logger().info(
+            'rf2o_bridge_imu '
+            f"stationary={payload['imu_stationary_flag']} "
+            f"stationary_score={payload['imu_stationary_score']} "
+            f"gyro_z={payload['raw_gyro_z']} "
+            f"acc_norm={payload['raw_acc_norm']} "
+            f"before={payload['radar_confidence_before_imu']} "
+            f"after={payload['radar_confidence_after_imu']} "
+            f"consistency={payload['imu_radar_consistency_score']} "
+            f"reason={payload['consistency_reject_reason']}"
         )
 
     def _maybe_log_baseline(self, baseline_summary: Dict[str, object]) -> None:
