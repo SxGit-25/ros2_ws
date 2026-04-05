@@ -26,6 +26,7 @@ setup(
     entry_points={
         'console_scripts': [
             'observation_adapter_node = radar_frontend.observation_adapter_node:main',
+            'observation_quality_manager_node = radar_frontend.observation_quality_manager_node:main',
             'private_observation_velocity_sender_node = radar_frontend.private_observation_velocity_sender_node:main',
             'radar_trial_monitor_node = radar_frontend.radar_trial_monitor_node:main',
             'rf2o_radar_bridge_node = radar_frontend.rf2o_radar_bridge_node:main',

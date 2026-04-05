@@ -1,0 +1,28 @@
+/**:
+  ros__parameters:
+    imu_candidate_topic: /observation/imu_candidate_state
+    flow_candidate_state_topic: /observation/flow_candidate_state
+    radar_twist_candidate_topic: /radar/vel_candidate_enhanced
+    radar_confidence_topic: /radar/match_quality_after_imu
+    radar_status_topic: /radar/imu_enhanced_status
+    flow_twist_candidate_topic: /observation/flow_twist_candidate
+    flow_candidate_status_topic: /observation/flow_candidate_status
+    radar_observation_candidate_topic: /observation/radar_observation_candidate
+    flow_observation_candidate_topic: /observation/flow_observation_candidate
+    stationary_status_topic: /observation/stationary_status
+    health_report_topic: /observation/health_report
+    frame_id: body_unverified
+    publish_hz: 10.0
+    flow_quality_valid_threshold: 80
+    flow_alt_min_cm: 15
+    flow_alt_max_cm: 350
+    flow_jump_speed_threshold: 0.80
+    flow_stale_timeout_sec: 0.5
+    radar_stale_timeout_sec: 0.5
+    radar_min_confidence: 0.45
+    flow_min_confidence: 0.45
+    radar_flow_consistency_speed_threshold: 0.18
+    stationary_speed_threshold_mps: 0.05
+    stationary_hold_frames: 4
+    stationary_release_frames: 2
+    log_hz: 1.0

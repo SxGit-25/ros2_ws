@@ -133,6 +133,14 @@ def _build_launch(context, *args, **kwargs):
             ),
             Node(
                 package='radar_frontend',
+                executable='observation_quality_manager_node',
+                name='observation_quality_manager_node',
+                output=pipeline_output,
+                emulate_tty=True,
+                parameters=[os.path.join(config_dir, 'observation_quality_manager.flight.yaml')],
+            ),
+            Node(
+                package='radar_frontend',
                 executable='radar_trial_monitor_node',
                 name='radar_trial_monitor_node',
                 output='screen',
