@@ -4,22 +4,33 @@ from typing import Optional, Union
 
 from ano_receiver_bridge.protocol_types import (
     ATTITUDE_FRAME_ID,
+    FLOW_OBS_FRAME_ID,
     GENERAL_DISTANCE_FRAME_ID,
     GENERAL_DISTANCE_INVALID,
     GENERAL_VELOCITY_FRAME_ID,
     GENERAL_VELOCITY_INVALID,
+    IMU_RAW_FRAME_ID,
     QUATERNION_FRAME_ID,
     SUPPORTED_PAYLOAD_LENGTHS,
     VELOCITY_FRAME_ID,
     AnoFrame,
     AttitudeData,
+    FlowObsData,
     GeneralDistanceData,
+    ImuRawData,
     QuaternionData,
     VelocityData,
 )
 
 
-DecodedType = Union[AttitudeData, QuaternionData, VelocityData, GeneralDistanceData]
+DecodedType = Union[
+    AttitudeData,
+    QuaternionData,
+    VelocityData,
+    ImuRawData,
+    FlowObsData,
+    GeneralDistanceData,
+]
 
 
 def decode_frame(frame: AnoFrame) -> Optional[DecodedType]:
@@ -33,6 +44,10 @@ def decode_frame(frame: AnoFrame) -> Optional[DecodedType]:
         return _decode_quaternion(frame.payload)
     if frame.frame_id == VELOCITY_FRAME_ID:
         return _decode_velocity(frame.payload)
+    if frame.frame_id == IMU_RAW_FRAME_ID:
+        return _decode_imu_raw(frame.payload)
+    if frame.frame_id == FLOW_OBS_FRAME_ID:
+        return _decode_flow_obs(frame.payload)
     if frame.frame_id == GENERAL_VELOCITY_FRAME_ID:
         return _decode_general_velocity(frame.payload)
     if frame.frame_id == GENERAL_DISTANCE_FRAME_ID:
@@ -67,6 +82,29 @@ def _decode_velocity(payload: bytes) -> VelocityData:
         x_mps=vx_cmps / 100.0,
         y_mps=vy_cmps / 100.0,
         z_mps=vz_cmps / 100.0,
+    )
+
+
+def _decode_imu_raw(payload: bytes) -> ImuRawData:
+    acc_x, acc_y, acc_z, gyr_x, gyr_y, gyr_z = struct.unpack('<hhhhhh', payload)
+    return ImuRawData(
+        acc_x=acc_x,
+        acc_y=acc_y,
+        acc_z=acc_z,
+        gyr_x=gyr_x,
+        gyr_y=gyr_y,
+        gyr_z=gyr_z,
+    )
+
+
+def _decode_flow_obs(payload: bytes) -> FlowObsData:
+    flow_vx_cmps, flow_vy_cmps, flow_state, flow_quality, alt_cm = struct.unpack('<hhBBI', payload)
+    return FlowObsData(
+        flow_vx=flow_vx_cmps / 100.0,
+        flow_vy=flow_vy_cmps / 100.0,
+        flow_state=flow_state,
+        flow_quality=flow_quality,
+        alt_cm=alt_cm,
     )
 
 
